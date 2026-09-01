@@ -140,17 +140,8 @@ router.post('/create', async (req, res) => {
         else if (playerZoneId) {
             credentialsLabel = `<b>Player ID:</b> <code>${playerId}</code>\n<b>Server/Zone ID:</b> <code>${playerZoneId}</code>`;
         }
-        const telegramMessage = `🛒 <b>New Order Placed! (via /payments/create)</b>\n` +
-            `-----------------------------------------\n` +
-            `<b>ID:</b> <code>${order.id}</code>\n` +
-            `<b>Txn ID:</b> <code>${paymentTxnId}</code>\n` +
-            `<b>Game:</b> ${pkg.product.name}\n` +
-            `<b>Package:</b> ${pkg.name}\n` +
-            `${credentialsLabel}\n` +
-            `<b>Nickname:</b> ${nickname}\n` +
-            `<b>Price:</b> $${pkg.price.toFixed(2)}\n` +
-            `<b>Payment:</b> ${paymentMethod}\n` +
-            `<b>Status:</b> PENDING`;
+        const playerIdFull = playerZoneId ? `${playerId} (${playerZoneId})` : playerId;
+        const telegramMessage = `${playerIdFull} ${pkg.name}`.trim();
         await (0, telegram_1.sendTelegramNotification)(telegramMessage);
         return res.status(201).json({
             message: 'Order created successfully',
@@ -255,9 +246,9 @@ router.post('/verify', async (req, res) => {
         if (order.paymentStatus === 'EXPIRED' || order.status === 'CANCELLED') {
             return res.status(410).json({ verified: false, error: 'Order has expired. Please create a new order.' });
         }
-        // ── RULE 3: Expire orders older than 15 seconds ───────────────────────────
+        // ── RULE 3: Expire orders older than 15 minutes ───────────────────────────
         const orderAgeMs = Date.now() - new Date(order.createdAt).getTime();
-        if (orderAgeMs > 15 * 1000) {
+        if (orderAgeMs > 15 * 60 * 1000) {
             await prisma_1.default.order.update({
                 where: { id: order.id },
                 data: { paymentStatus: 'EXPIRED', status: 'CANCELLED', deliveryStatus: 'FAILED' },
@@ -278,73 +269,10 @@ router.post('/verify', async (req, res) => {
                 return res.status(403).json({ verified: false, error: 'Security signature mismatch. Verification failed.' });
             }
         }
-        // ── RULE 5: Server-to-Server NBC Bakong API check (direct, no client trust) ─
-        // Use the MD5 stored in OUR database — never the amount/md5 from the client
-        const md5ToVerify = (order.paymentMd5 || '').toLowerCase().trim();
-        if (!md5ToVerify) {
-            return res.status(400).json({ verified: false, error: 'No payment MD5 stored for this order. Cannot verify.' });
-        }
-        const bakongToken = (process.env.BAKONG_TOKEN || '').replace(/['"]/g, '').trim();
-        const bakongApiUrl = (process.env.BAKONG_API || 'https://api-bakong.nbc.gov.kh').replace(/\/+$/, '');
-        let nbcPaid = false;
-        if (bakongToken) {
-            try {
-                const url = `${bakongApiUrl}/v1/check_transaction_by_md5`;
-                console.log(`[Verify] NBC Bakong server-to-server check: ${url} md5=${md5ToVerify}`);
-                const nbcRes = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${bakongToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ md5: md5ToVerify }),
-                    signal: AbortSignal.timeout(8000),
-                });
-                const nbcData = await nbcRes.json();
-                console.log(`[Verify] NBC Response:`, JSON.stringify(nbcData));
-                if (nbcRes.ok && nbcData && (nbcData.responseCode === 0 || nbcData.responseCode === '0') && nbcData.data) {
-                    // Validate amount from gateway matches DB amount (never trust client-sent price)
-                    if (nbcData.data.amount !== undefined) {
-                        const gatewayAmount = parseFloat(nbcData.data.amount);
-                        if (Math.abs(gatewayAmount - order.price) > 0.01) {
-                            console.error(`[SECURITY ALERT] Amount mismatch! TxnId=${transactionId} db=${order.price} gateway=${gatewayAmount}`);
-                            await (0, telegram_1.sendTelegramNotification)(`🚨 <b>AMOUNT MISMATCH on Verify!</b>\n` +
-                                `<b>TxnId:</b> <code>${transactionId}</code>\n` +
-                                `<b>DB Price:</b> $${order.price}\n` +
-                                `<b>Gateway Amount:</b> $${gatewayAmount}`);
-                            return res.status(403).json({ verified: false, error: 'Payment amount mismatch. Verification rejected.' });
-                        }
-                    }
-                    // Validate merchant account
-                    const expectedMerchant = (process.env.BAKONG_ACCOUNT_ID || '').replace(/['"]/g, '').trim().toLowerCase();
-                    const gatewayMerchantRaw = nbcData.data.toAccountId || nbcData.data.receiving_account_id || nbcData.data.receivingAccountId || '';
-                    if (expectedMerchant && gatewayMerchantRaw) {
-                        if (gatewayMerchantRaw.trim().toLowerCase() !== expectedMerchant) {
-                            console.error(`[SECURITY ALERT] Merchant mismatch! Expected=${expectedMerchant} Gateway=${gatewayMerchantRaw}`);
-                            return res.status(403).json({ verified: false, error: 'Merchant account mismatch. Verification rejected.' });
-                        }
-                    }
-                    nbcPaid = true;
-                    console.log(`[Verify] ✅ NBC Bakong confirmed PAID for ${transactionId}`);
-                }
-            }
-            catch (err) {
-                console.error(`[Verify] NBC API call error:`, err.message || err);
-            }
-        }
-        // ── SANDBOX fallback ──────────────────────────────────────────────────────
-        if (!nbcPaid && process.env.SANDBOX_MODE === 'true') {
-            const elapsedMs = orderAgeMs;
-            if (elapsedMs >= 15000) {
-                console.log(`[Verify] [SANDBOX] Auto-approving after ${Math.round(elapsedMs / 1000)}s`);
-                nbcPaid = true;
-            }
-            else {
-                console.log(`[Verify] [SANDBOX] Only ${Math.round(elapsedMs / 1000)}s elapsed — waiting for 15s`);
-            }
-        }
+        // ── RULE 5: Multi-Gateway Server-to-Server Verification (CutLuy, Meatika, Bakong Relay, NBC) ─
+        const isPaid = await (0, paymentVerification_1.verifyAbaKhqrPayment)(order);
         // ── RULE 6: Race condition check — re-read DB in case concurrent poll got it first ─
-        if (!nbcPaid) {
+        if (!isPaid) {
             const freshCheck = await prisma_1.default.order.findUnique({ where: { id: order.id } });
             if (freshCheck && (freshCheck.paymentStatus === 'SUCCESS' || freshCheck.paymentStatus === 'PAID' || freshCheck.status === 'PAID')) {
                 console.log(`[Verify] Race: already processed by concurrent sweep for ${transactionId}`);
@@ -359,12 +287,12 @@ router.post('/verify', async (req, res) => {
                 verified: false,
                 status: order.status,
                 paymentStatus: order.paymentStatus,
-                message: 'Payment not yet confirmed by Bakong. Please wait and try again.',
+                message: 'Payment not yet confirmed by gateway. Please wait and try again.',
             });
         }
         // ── RULE 7: Process delivery atomically ───────────────────────────────────
         console.log(`[Verify] Payment confirmed for ${transactionId}. Processing delivery...`);
-        const result = await (0, paymentVerification_1.processVerifiedPayment)(order, `VERIFY-NBC-${md5ToVerify}`);
+        const result = await (0, paymentVerification_1.processVerifiedPayment)(order, `VERIFY-${order.paymentMd5 || transactionId}`);
         return res.status(200).json({
             verified: true,
             status: result.currentOrder.status,

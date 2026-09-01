@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -15,6 +48,8 @@ router.post('/', async (req, res) => {
         console.log('[Webhook] 📥 Received callback request.');
         console.log('[Webhook] Request headers:', JSON.stringify(req.headers));
         console.log('[Webhook] Request body:', JSON.stringify(req.body, null, 2));
+        // Resolve CutLuy payment payload
+        const cutluyPayment = req.body.data?.payment;
         // Resolve MD5 using all possible paths
         const rawMd5 = req.body.md5 ||
             req.body.md5Hash ||
@@ -23,7 +58,9 @@ router.post('/', async (req, res) => {
             req.body.data?.md5Hash;
         const sanitizedMd5 = rawMd5 ? rawMd5.toLowerCase().trim() : '';
         // Resolve Transaction ID using all possible paths
-        const transactionId = req.body.transactionId ||
+        const transactionId = cutluyPayment?.reference_id ||
+            req.body.reference_id ||
+            req.body.transactionId ||
             req.body.transaction_id ||
             req.body.trans_id ||
             req.body.bill_number ||
@@ -31,26 +68,46 @@ router.post('/', async (req, res) => {
             req.body.data?.bill_number ||
             req.body.data?.transaction_id ||
             req.body.data?.trans_id;
-        // Resolve Session ID
-        const sessionId = req.body.session_id ||
+        // Resolve Session / Payment ID
+        const sessionId = cutluyPayment?.id ||
+            req.body.session_id ||
             req.body.data?.session_id ||
             req.body.id;
         // Resolve Status using all possible paths
-        const rawStatus = req.body.status ||
-            req.body.paymentStatus ||
-            req.body.data?.status;
+        const rawStatus = (cutluyPayment?.status || req.body.status || req.body.paymentStatus || req.body.data?.status || (req.body.type === 'payment.completed' ? 'PAID' : '') || '').toString();
         // Resolve Amount using all possible paths
-        const amount = req.body.amount ||
+        const amount = cutluyPayment?.amount ||
+            req.body.amount ||
             req.body.req_khqr?.amount ||
             req.body.data?.amount;
         // Resolve Currency using all possible paths
-        const currency = req.body.currency ||
+        const currency = cutluyPayment?.currency ||
+            req.body.currency ||
             req.body.req_khqr?.currency ||
             req.body.data?.currency;
         console.log(`[Webhook] Parsed variables: MD5="${sanitizedMd5}", TxnID="${transactionId || 'N/A'}", SessionID="${sessionId || 'N/A'}", Status="${rawStatus || 'N/A'}", Amount="${amount || 'N/A'}", Currency="${currency || 'N/A'}"`);
+        const cutluySig = req.headers['x-cutluy-signature'];
+        const cutluySecret = process.env.CUTLUY_WEBHOOK_SECRET;
+        if (cutluySecret && cutluySig) {
+            try {
+                const crypto = await Promise.resolve().then(() => __importStar(require('crypto')));
+                const parts = Object.fromEntries(cutluySig.split(',').map((p) => p.split('=')));
+                const rawBody = JSON.stringify(req.body);
+                const expected = crypto.createHmac('sha256', cutluySecret).update(`${parts.t}.${rawBody}`).digest('hex');
+                if (parts.v1 && parts.v1 !== expected) {
+                    console.warn('[Webhook] [CutLuy] ⚠️ Invalid X-CutLuy-Signature');
+                }
+                else {
+                    console.log('[Webhook] [CutLuy] ✅ Signature verified.');
+                }
+            }
+            catch (e) {
+                console.error('[Webhook] [CutLuy] Signature check error:', e.message);
+            }
+        }
+        // Webhook signature verification
         const signature = req.headers['x-bakong-signature'];
         const bakongApiKey = process.env.BAKONG_API_KEY || '';
-        // Webhook signature verification
         if (bakongApiKey && signature) {
             const isValid = (0, paymentMock_1.verifyBakongWebhook)(rawMd5 || '', transactionId || '', signature, bakongApiKey);
             if (!isValid) {

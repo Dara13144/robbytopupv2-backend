@@ -13,6 +13,9 @@ router.post('/', async (req, res) => {
     console.log('[Webhook] Request headers:', JSON.stringify(req.headers));
     console.log('[Webhook] Request body:', JSON.stringify(req.body, null, 2));
 
+    // Resolve CutLuy payment payload
+    const cutluyPayment = req.body.data?.payment;
+
     // Resolve MD5 using all possible paths
     const rawMd5 = req.body.md5 || 
                    req.body.md5Hash || 
@@ -23,41 +26,61 @@ router.post('/', async (req, res) => {
     const sanitizedMd5 = rawMd5 ? rawMd5.toLowerCase().trim() : '';
 
     // Resolve Transaction ID using all possible paths
-    const transactionId = req.body.transactionId || 
-                           req.body.transaction_id || 
-                           req.body.trans_id || 
-                           req.body.bill_number || 
-                           req.body.req_khqr?.bill_number || 
-                           req.body.data?.bill_number || 
-                           req.body.data?.transaction_id || 
-                           req.body.data?.trans_id;
+    const transactionId = cutluyPayment?.reference_id ||
+                          req.body.reference_id ||
+                          req.body.transactionId || 
+                          req.body.transaction_id || 
+                          req.body.trans_id || 
+                          req.body.bill_number || 
+                          req.body.req_khqr?.bill_number || 
+                          req.body.data?.bill_number || 
+                          req.body.data?.transaction_id || 
+                          req.body.data?.trans_id;
 
-    // Resolve Session ID
-    const sessionId = req.body.session_id || 
+    // Resolve Session / Payment ID
+    const sessionId = cutluyPayment?.id ||
+                      req.body.session_id || 
                       req.body.data?.session_id || 
                       req.body.id;
 
     // Resolve Status using all possible paths
-    const rawStatus = req.body.status || 
-                      req.body.paymentStatus || 
-                      req.body.data?.status;
+    const rawStatus = (cutluyPayment?.status || req.body.status || req.body.paymentStatus || req.body.data?.status || (req.body.type === 'payment.completed' ? 'PAID' : '') || '').toString();
 
     // Resolve Amount using all possible paths
-    const amount = req.body.amount || 
+    const amount = cutluyPayment?.amount ||
+                   req.body.amount || 
                    req.body.req_khqr?.amount || 
                    req.body.data?.amount;
 
     // Resolve Currency using all possible paths
-    const currency = req.body.currency ||
+    const currency = cutluyPayment?.currency ||
+                     req.body.currency ||
                      req.body.req_khqr?.currency ||
                      req.body.data?.currency;
 
     console.log(`[Webhook] Parsed variables: MD5="${sanitizedMd5}", TxnID="${transactionId || 'N/A'}", SessionID="${sessionId || 'N/A'}", Status="${rawStatus || 'N/A'}", Amount="${amount || 'N/A'}", Currency="${currency || 'N/A'}"`);
 
-    const signature = req.headers['x-bakong-signature'] as string;
-    const bakongApiKey = process.env.BAKONG_API_KEY || '';
+    const cutluySig = req.headers['x-cutluy-signature'] as string;
+    const cutluySecret = process.env.CUTLUY_WEBHOOK_SECRET;
+    if (cutluySecret && cutluySig) {
+      try {
+        const crypto = await import('crypto');
+        const parts = Object.fromEntries(cutluySig.split(',').map((p) => p.split('=')));
+        const rawBody = JSON.stringify(req.body);
+        const expected = crypto.createHmac('sha256', cutluySecret).update(`${parts.t}.${rawBody}`).digest('hex');
+        if (parts.v1 && parts.v1 !== expected) {
+          console.warn('[Webhook] [CutLuy] ⚠️ Invalid X-CutLuy-Signature');
+        } else {
+          console.log('[Webhook] [CutLuy] ✅ Signature verified.');
+        }
+      } catch (e: any) {
+        console.error('[Webhook] [CutLuy] Signature check error:', e.message);
+      }
+    }
 
     // Webhook signature verification
+    const signature = req.headers['x-bakong-signature'] as string;
+    const bakongApiKey = process.env.BAKONG_API_KEY || '';
     if (bakongApiKey && signature) {
       const isValid = verifyBakongWebhook(rawMd5 || '', transactionId || '', signature, bakongApiKey);
       if (!isValid) {

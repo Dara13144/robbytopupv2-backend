@@ -113,30 +113,22 @@ export function calculateCRC16(data: string): string {
   return crc.toString(16).toUpperCase().padStart(4, '0');
 }
 
-export interface BakongQRResponse {
-  qrCode: string; // The raw KHQR string
-  md5: string;    // MD5 of the QR code
-  txnId: string;
-  gatewayRef?: string;
-  checkoutUrl?: string;
-}
-
 export async function generateBakongKHQR(
   tranId: string,
   amount: number,
   itemName: string
 ): Promise<BakongQRResponse> {
   const amountStr = amount.toFixed(2);
-  console.log(`[KHQR Generator] Starting generation for Txn ID: "${tranId}", Amount: $${amountStr}, Item: "${itemName}"`);
+  console.log(`[Bakong KHQR Generator] Starting generation for Txn ID: "${tranId}", Amount: $${amountStr}, Item Name: "${itemName}"`);
 
-  // ── 0. CUTLUY LIVE PAYMENT API (cutluy.com/v1/payments) ──────────────────
-  const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_ltzuuRIaJ_6qZmIsfumr5qp0PP_7SsvT';
+  // ── 00. CutLuy Live Auto Payment Gateway (https://cutluy.com/) ───────────
+  const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_7TNbEHrfs2CDCc5ze1atGCIM6ISYZQwD';
   const cutluyApiUrl = process.env.CUTLUY_API_URL || 'https://cutluy.com/v1/payments';
 
   if (cutluyApiKey) {
     try {
-      console.log(`[KHQR Generator] Generating live KHQR via CutLuy: ${cutluyApiUrl}`);
-      const cutluyRes = await fetch(cutluyApiUrl, {
+      console.log(`[Bakong KHQR Generator] [CutLuy] Requesting payment: Amount $${amountStr}, Ref: ${tranId}`);
+      const res = await fetch(cutluyApiUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${cutluyApiKey}`,
@@ -146,30 +138,66 @@ export async function generateBakongKHQR(
           amount: parseFloat(amountStr),
           reference_id: tranId,
         }),
-        signal: AbortSignal.timeout(7000),
+        signal: AbortSignal.timeout(6000),
       });
 
-      console.log(`[KHQR Generator] CutLuy response status: ${cutluyRes.status}`);
-      if (cutluyRes.ok) {
-        const paymentData = await cutluyRes.json() as any;
-        console.log('[KHQR Generator] CutLuy Live Payment JSON:', JSON.stringify(paymentData));
-        if (paymentData.qr_string) {
-          const md5Hash = crypto.createHash('md5').update(paymentData.qr_string).digest('hex').toLowerCase();
-          console.log(`[KHQR Generator] ✅ Live KHQR generated via CutLuy. CutLuy ID: ${paymentData.id}, MD5: ${md5Hash}`);
+      if (res.ok) {
+        const paymentData = await res.json() as any;
+        console.log('[Bakong KHQR Generator] [CutLuy] Response:', JSON.stringify(paymentData));
+        const qrString = paymentData.qr_string || paymentData.data?.qr_string || (paymentData.payment && paymentData.payment.qr_string);
+        if (qrString) {
+          const md5 = crypto.createHash('md5').update(qrString).digest('hex').toLowerCase();
+          const cutluyRef = paymentData.id || paymentData.data?.id || (paymentData.payment && paymentData.payment.id) || tranId;
           return {
-            qrCode: paymentData.qr_string,
-            md5: md5Hash,
+            qrCode: qrString,
+            md5,
             txnId: tranId,
-            gatewayRef: paymentData.id,
-            checkoutUrl: paymentData.checkout_url,
-          };
+            gatewayRef: cutluyRef,
+          } as any;
         }
       } else {
-        const errText = await cutluyRes.text();
-        console.warn(`[KHQR Generator] CutLuy API error (${cutluyRes.status}):`, errText);
+        const errText = await res.text();
+        console.warn(`[Bakong KHQR Generator] [CutLuy] Error ${res.status}:`, errText);
       }
     } catch (cutluyErr: any) {
-      console.error('[KHQR Generator] CutLuy generation error:', cutluyErr.message || cutluyErr);
+      console.error('[Bakong KHQR Generator] [CutLuy] Failed:', cutluyErr.message || cutluyErr);
+    }
+  }
+
+  // ── 0. MEATIKA KHQR API (khqr-api.meatika.dev) ──────────────────────────
+  const meatikaApiKey = process.env.MEATIKA_API_KEY || 
+                        (process.env.BAKONG_TOKEN?.startsWith('sk_') ? process.env.BAKONG_TOKEN : '') || 
+                        '';
+  const rawMeatikaUrl = process.env.MEATIKA_API_URL || 
+                        (process.env.BAKONG_API?.includes('meatika') ? process.env.BAKONG_API : '') || 
+                        'https://khqr-api.meatika.dev';
+  const meatikaApiUrl = rawMeatikaUrl.replace(/\/$/, '').replace(/\/api$/, '') + '/api';
+
+  if (meatikaApiKey) {
+    try {
+      const generateUrl = `${meatikaApiUrl}/generate-khqr?amount=${parseFloat(amountStr)}&api_key=${meatikaApiKey}`;
+      console.log(`[Bakong KHQR Generator] Trying Meatika: ${generateUrl}`);
+
+      const apiRes = await fetch(generateUrl, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      console.log(`[Bakong KHQR Generator] Meatika response status: ${apiRes.status}`);
+      if (apiRes.ok) {
+        const resData = await apiRes.json() as any;
+        console.log('[Bakong KHQR Generator] Meatika Response JSON:', JSON.stringify(resData));
+        if (resData.qr_string && resData.md5) {
+          console.log('[Bakong KHQR Generator] ✅ KHQR generated successfully via Meatika.');
+          return {
+            qrCode: resData.qr_string,
+            md5:    resData.md5.toLowerCase().trim(),
+            txnId:  tranId,
+          };
+        }
+      }
+    } catch (apiErr: any) {
+      console.error('[Bakong KHQR Generator] Meatika generation failed:', apiErr.message || apiErr);
     }
   }
 
@@ -238,7 +266,7 @@ export async function generateBakongKHQR(
         const finalAmount = isKhrAccount ? Math.round(amount * 4100) : parseFloat(amountStr);
 
         const frontendUrl = (process.env.FRONTEND_URL || 'https://daratopup.com').trim().replace(/\/$/, '');
-        const backendUrl = (process.env.BACKEND_URL || 'https://robbytopup-backend.onrender.com').trim().replace(/\/$/, '');
+        const backendUrl = (process.env.BACKEND_URL || 'https://daratopup-backend-1.onrender.com').trim().replace(/\/$/, '');
 
         const payload = {
           trans_id: tranId,
@@ -400,6 +428,43 @@ export async function checkBakongPaymentStatus(
   if (!sanitizedMd5) {
     console.warn('[Payment Verification] ❌ Verification aborted: MD5 is empty.');
     return false;
+  }
+
+  // ── 000. CutLuy Live Payment Status Check ─────────────────────────────────
+  const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_7TNbEHrfs2CDCc5ze1atGCIM6ISYZQwD';
+  if (cutluyApiKey) {
+    try {
+      const { PrismaClient } = await import('@prisma/client');
+      const prismaClient = new PrismaClient();
+      const order = await prismaClient.order.findFirst({
+        where: {
+          OR: [
+            { paymentMd5: sanitizedMd5 },
+            { paymentMd5: sanitizedMd5.toUpperCase() },
+            { paymentTxnId: khpayTxnId }
+          ]
+        }
+      });
+      await prismaClient.$disconnect();
+
+      const cutluyId = order?.gatewayRef;
+      if (cutluyId && !cutluyId.startsWith('MOCK') && !cutluyId.startsWith('rbkn')) {
+        const checkUrl = `https://cutluy.com/v1/payments/${cutluyId}`;
+        const res = await fetch(checkUrl, {
+          headers: { Authorization: `Bearer ${cutluyApiKey}` },
+          signal: AbortSignal.timeout(5000)
+        });
+        if (res.ok) {
+          const data = await res.json() as any;
+          if (data.status === 'paid' || data.status === 'approved' || data.status === 'completed' || data.status === 'success') {
+            console.log(`[Payment Verification] ✅ Confirmed PAID via CutLuy status for ${cutluyId}`);
+            return true;
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error('[Payment Verification] [CutLuy] Check error:', e.message || e);
+    }
   }
 
   // ── 00. Meatika Payment Status Check ───────────────────────────────────────

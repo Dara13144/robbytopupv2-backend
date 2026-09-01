@@ -1,7 +1,7 @@
-import { execSync } from 'child_process';
-import path from 'path';
-import prisma from '../prisma';
-import bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+
+const prisma = new PrismaClient();
 
 interface GameDef {
   name: string;
@@ -9,8 +9,10 @@ interface GameDef {
   category: string;
   currency: string;
   image?: string;
+  customPackages?: Array<{ name: string; amount: number; price: number; category: string; badge?: string }>;
 }
 
+// Generate realistic packages for games based on currency and pricing
 function generateDefaultPackages(currency: string, multiplier: number = 1) {
   return [
     { name: `${Math.round(60 * multiplier)} ${currency}`, amount: Math.round(60 * multiplier), price: 0.99, category: 'BEST_SELLER', badge: 'ពេញនិយម' },
@@ -23,7 +25,7 @@ function generateDefaultPackages(currency: string, multiplier: number = 1) {
 }
 
 const ALL_GAMES: GameDef[] = [
-  // MOBA & Action
+  // ── MOBA & Tactical ──
   { name: 'Mobile Legends: Bang Bang', slug: 'mobile-legends', category: 'MOBILE_GAME', currency: 'Diamonds', image: '/images/games/mlbb.png' },
   { name: 'MOBILE LEGENDS | KHMER', slug: 'mobile-legends-khmer', category: 'MOBILE_GAME', currency: 'Diamonds', image: '/images/games/mlbb.png' },
   { name: 'MOBILE LEGENDS | PHILIPPINES', slug: 'mobile-legends-philippines', category: 'MOBILE_GAME', currency: 'Diamonds', image: '/images/games/mlbb.png' },
@@ -51,7 +53,7 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Dota 2', slug: 'dota-2', category: 'PC_GAME', currency: 'Steam Wallet' },
   { name: 'Teamfight Tactics', slug: 'teamfight-tactics', category: 'PC_GAME', currency: 'TFT Coins' },
 
-  // Shooters & Battle Royale
+  // ── Shooters & Battle Royale ──
   { name: 'Free Fire', slug: 'free-fire', category: 'MOBILE_GAME', currency: 'Diamonds', image: '/images/games/freefire.png' },
   { name: 'FREE FIRE | KHMER', slug: 'free-fire-khmer', category: 'MOBILE_GAME', currency: 'Diamonds', image: '/images/games/freefire.png' },
   { name: 'FREE FIRE | KHMER (VIP)', slug: 'free-fire-indonesia', category: 'MOBILE_GAME', currency: 'Diamonds', image: '/images/games/freefire.png' },
@@ -74,14 +76,13 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Combat Master', slug: 'combat-master', category: 'MOBILE_GAME', currency: 'Gold' },
   { name: 'Farlight 84', slug: 'farlight-84', category: 'MOBILE_GAME', currency: 'Diamonds', image: '/images/games/farlight.png' },
   { name: 'Blood Strike', slug: 'blood-strike', category: 'MOBILE_GAME', currency: 'Gold', image: '/images/games/bloodstrike.png' },
-  { name: 'Bullet Echo', slug: 'bullet-echo', category: 'MOBILE_GAME', currency: 'Bucks', image: '/images/games/bullet-echo.png' },
   { name: 'Arena Breakout', slug: 'arena-breakout', category: 'MOBILE_GAME', currency: 'Bonds' },
   { name: 'Standoff 2', slug: 'standoff-2', category: 'MOBILE_GAME', currency: 'Gold' },
   { name: 'Delta Force', slug: 'delta-force', category: 'PC_GAME', currency: 'Delta Coins', image: '/images/games/deltaforce.png' },
   { name: 'Garena Delta Force', slug: 'garena-delta-force', category: 'PC_GAME', currency: 'Delta Coins', image: '/images/games/deltaforce.png' },
   { name: 'Rainbow Six Mobile', slug: 'rainbow-six-mobile', category: 'MOBILE_GAME', currency: 'R6 Credits' },
   { name: 'Valorant', slug: 'valorant', category: 'PC_GAME', currency: 'VP', image: '/images/games/valorant.png' },
-  { name: 'Counter-Strike 2', slug: 'counter-strike-2', category: 'PC_GAME', currency: 'Wallet' },
+  { name: 'Counter-Strike 2', slug: 'counter-strike-2', category: 'PC_GAME', currency: 'Wallet / Keys' },
   { name: 'Overwatch 2', slug: 'overwatch-2', category: 'PC_GAME', currency: 'Coins' },
   { name: 'Apex Legends', slug: 'apex-legends', category: 'PC_GAME', currency: 'Apex Coins' },
   { name: 'Fortnite', slug: 'fortnite', category: 'PC_GAME', currency: 'V-Bucks' },
@@ -113,10 +114,10 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Left 4 Dead 2', slug: 'left-4-dead-2', category: 'PC_GAME', currency: 'Steam Item Pack' },
   { name: 'Back 4 Blood', slug: 'back-4-blood', category: 'PC_GAME', currency: 'Supply Points' },
   { name: 'Borderlands 3', slug: 'borderlands-3', category: 'PC_GAME', currency: 'Golden Keys' },
-  { name: 'Escape from Tarkov', slug: 'escape-from-tarkov', category: 'PC_GAME', currency: 'Roubles' },
+  { name: 'Escape from Tarkov', slug: 'escape-from-tarkov', category: 'PC_GAME', currency: 'Roubles / Edition' },
   { name: 'Hunt: Showdown', slug: 'hunt-showdown', category: 'PC_GAME', currency: 'Blood Bonds' },
 
-  // Anime, RPG & Gacha
+  // ── Anime, RPG & Gacha ──
   { name: 'Genshin Impact', slug: 'genshin-impact', category: 'MOBILE_GAME', currency: 'Genesis Crystals', image: '/images/games/genshin-impact.png' },
   { name: 'Honkai: Star Rail', slug: 'honkai-star-rail', category: 'MOBILE_GAME', currency: 'Oneiric Shards' },
   { name: 'Honkai Impact 3rd', slug: 'honkai-impact-3rd', category: 'MOBILE_GAME', currency: 'Crystals' },
@@ -168,15 +169,15 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Black Desert', slug: 'black-desert', category: 'PC_GAME', currency: 'Pearls' },
   { name: 'Audition Online', slug: 'audition-online', category: 'PC_GAME', currency: 'Bana Cash' },
 
-  // MMORPG
+  // ── MMORPG & RPG ──
   { name: 'Ragnarok Origin', slug: 'ragnarok-origin', category: 'MOBILE_GAME', currency: 'Nyan Berries' },
   { name: 'Ragnarok M: Eternal Love', slug: 'ragnarok-m-eternal-love', category: 'MOBILE_GAME', currency: 'Big Cat Coins' },
   { name: 'Ragnarok X: Next Generation', slug: 'ragnarok-x-next-generation', category: 'MOBILE_GAME', currency: 'Diamonds' },
   { name: 'MapleStory M', slug: 'maplestory-m', category: 'MOBILE_GAME', currency: 'Crystals' },
   { name: 'Black Desert Mobile', slug: 'black-desert-mobile', category: 'MOBILE_GAME', currency: 'Black Pearls' },
   { name: 'Albion Online', slug: 'albion-online', category: 'PC_GAME', currency: 'Gold' },
-  { name: 'World of Warcraft', slug: 'world-of-warcraft', category: 'PC_GAME', currency: 'Game Time' },
-  { name: 'Final Fantasy XIV', slug: 'final-fantasy-xiv', category: 'PC_GAME', currency: 'Crysta' },
+  { name: 'World of Warcraft', slug: 'world-of-warcraft', category: 'PC_GAME', currency: 'Game Time / WoW Token' },
+  { name: 'Final Fantasy XIV', slug: 'final-fantasy-xiv', category: 'PC_GAME', currency: 'Crysta / Sub' },
   { name: 'Final Fantasy XI', slug: 'final-fantasy-xi', category: 'PC_GAME', currency: 'Sub Points' },
   { name: 'RuneScape', slug: 'runescape', category: 'PC_GAME', currency: 'Bonds' },
   { name: 'Old School RuneScape', slug: 'old-school-runescape', category: 'PC_GAME', currency: 'OSRS Bonds' },
@@ -208,15 +209,15 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Last Epoch', slug: 'last-epoch', category: 'PC_GAME', currency: 'Epoch Points' },
   { name: 'Grim Dawn', slug: 'grim-dawn', category: 'PC_GAME', currency: 'DLC Keys' },
 
-  // Survival, Sandbox & Open World
-  { name: 'Minecraft Java Edition', slug: 'minecraft-java-edition', category: 'PC_GAME', currency: 'Minecoins' },
+  // ── Survival, Sandbox & Open World ──
+  { name: 'Minecraft Java Edition', slug: 'minecraft-java-edition', category: 'PC_GAME', currency: 'Minecoins / Gift Card' },
   { name: 'Minecraft Bedrock Edition', slug: 'minecraft-bedrock-edition', category: 'PC_GAME', currency: 'Minecoins' },
   { name: 'Minecraft Dungeons', slug: 'minecraft-dungeons', category: 'PC_GAME', currency: 'Season Pass' },
   { name: 'Minecraft Legends', slug: 'minecraft-legends', category: 'PC_GAME', currency: 'Minecoins' },
   { name: 'Roblox', slug: 'roblox', category: 'MOBILE_GAME', currency: 'Robux', image: '/images/games/roblox.png' },
   { name: 'Terraria', slug: 'terraria', category: 'PC_GAME', currency: 'Digital License' },
   { name: 'ARK: Survival Evolved', slug: 'ark-survival-evolved', category: 'PC_GAME', currency: 'Amber / Pass' },
-  { name: 'Ark: Survival Ascended', slug: 'ark-survival-ascended', category: 'PC_GAME', currency: 'Season Pass' },
+  { name: 'Ark: Survival Ascended', slug: 'ark-survival-ascended', category: 'PC_GAME', currency: 'Bob’s Tall Tales' },
   { name: 'Don’t Starve Together', slug: 'dont-starve-together', category: 'PC_GAME', currency: 'Spools' },
   { name: 'Rust', slug: 'rust', category: 'PC_GAME', currency: 'Rust Coins' },
   { name: 'DayZ', slug: 'dayz', category: 'PC_GAME', currency: 'DLC Keys' },
@@ -225,10 +226,10 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Conan Exiles', slug: 'conan-exiles', category: 'PC_GAME', currency: 'Crom Coins' },
   { name: '7 Days to Die', slug: '7-days-to-die', category: 'PC_GAME', currency: 'Duke Tokens' },
   { name: 'The Forest', slug: 'the-forest', category: 'PC_GAME', currency: 'Survival Pack' },
-  { name: 'Sons of the Forest', slug: 'sons-of-the-forest', category: 'PC_GAME', currency: 'Item Pack' },
+  { name: 'Sons of the Forest', slug: 'sons-of-the-forest', category: 'PC_GAME', currency: 'Key / Item Pack' },
   { name: 'Raft', slug: 'raft', category: 'PC_GAME', currency: 'Game Code' },
   { name: 'Unturned', slug: 'unturned', category: 'PC_GAME', currency: 'Gold Upgrade' },
-  { name: 'Project Zomboid', slug: 'project-zomboid', category: 'PC_GAME', currency: 'Gift Code' },
+  { name: 'Project Zomboid', slug: 'project-zomboid', category: 'PC_GAME', currency: 'Steam Gift Code' },
   { name: 'Core Keeper', slug: 'core-keeper', category: 'PC_GAME', currency: 'Ancient Coins' },
   { name: 'Starbound', slug: 'starbound', category: 'PC_GAME', currency: 'Pixels Pack' },
   { name: 'No Man’s Sky', slug: 'no-mans-sky', category: 'PC_GAME', currency: 'Quicksilver' },
@@ -245,7 +246,7 @@ const ALL_GAMES: GameDef[] = [
   { name: 'GTA IV', slug: 'gta-iv', category: 'PC_GAME', currency: 'Complete Edition' },
   { name: 'GTA San Andreas', slug: 'gta-san-andreas', category: 'PC_GAME', currency: 'Classic Edition' },
   { name: 'GTA Vice City', slug: 'gta-vice-city', category: 'PC_GAME', currency: 'Definitive Pack' },
-  { name: 'GTA Trilogy', slug: 'gta-trilogy', category: 'PC_GAME', currency: 'Definitive Edition' },
+  { name: 'GTA Trilogy', slug: 'gta-trilogy', category: 'PC_GAME', currency: 'The Definitive Edition' },
   { name: 'Red Dead Redemption 2', slug: 'red-dead-redemption-2', category: 'PC_GAME', currency: 'Gold Bars' },
   { name: 'Red Dead Online', slug: 'red-dead-online', category: 'PC_GAME', currency: 'Gold Bars' },
   { name: 'Cyberpunk 2077', slug: 'cyberpunk-2077', category: 'PC_GAME', currency: 'Phantom Liberty' },
@@ -259,10 +260,10 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Assassin’s Creed Mirage', slug: 'assassins-creed-mirage', category: 'PC_GAME', currency: 'Dirhams Pack' },
   { name: 'Hogwarts Legacy', slug: 'hogwarts-legacy', category: 'PC_GAME', currency: 'Dark Arts Pack' },
   { name: 'Marvel’s Spider-Man 2', slug: 'spiderman-2', category: 'PC_GAME', currency: 'Deluxe Upgrade' },
-  { name: 'Spider-Man Remastered', slug: 'spiderman-remastered', category: 'PC_GAME', currency: 'DLC Pack' },
-  { name: 'Ghost of Tsushima', slug: 'ghost-of-tsushima', category: 'PC_GAME', currency: 'Expansion Pass' },
+  { name: 'Spider-Man Remastered', slug: 'spiderman-remastered', category: 'PC_GAME', currency: 'City That Never Sleeps' },
+  { name: 'Ghost of Tsushima', slug: 'ghost-of-tsushima', category: 'PC_GAME', currency: 'Iki Island Expansion' },
   { name: 'Sea of Thieves', slug: 'sea-of-thieves', category: 'PC_GAME', currency: 'Ancient Coins' },
-  { name: 'The Sims 4', slug: 'the-sims-4', category: 'PC_GAME', currency: 'DLC Pack' },
+  { name: 'The Sims 4', slug: 'the-sims-4', category: 'PC_GAME', currency: 'Simoleons / DLC' },
   { name: 'The Sims Mobile', slug: 'the-sims-mobile', category: 'MOBILE_GAME', currency: 'SimCash' },
   { name: 'Rec Room', slug: 'rec-room', category: 'PC_GAME', currency: 'Tokens' },
   { name: 'VRChat', slug: 'vrchat', category: 'PC_GAME', currency: 'VRChat Plus' },
@@ -270,20 +271,20 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Habbo', slug: 'habbo', category: 'PC_GAME', currency: 'Credits' },
   { name: 'IMVU', slug: 'imvu', category: 'PC_GAME', currency: 'Credits' },
 
-  // Strategy & City Building
+  // ── Strategy & City Building ──
   { name: 'Civilization VI', slug: 'civilization-6', category: 'PC_GAME', currency: 'Leader Pass' },
   { name: 'Age of Empires IV', slug: 'age-of-empires-4', category: 'PC_GAME', currency: 'Sultans Ascend' },
   { name: 'StarCraft II', slug: 'starcraft-2', category: 'PC_GAME', currency: 'War Chest' },
   { name: 'Warcraft III', slug: 'warcraft-3', category: 'PC_GAME', currency: 'Reforged Spoils' },
   { name: 'Total War: Warhammer III', slug: 'total-war-warhammer-3', category: 'PC_GAME', currency: 'Blood Pack' },
-  { name: 'Europa Universalis IV', slug: 'europa-universalis-4', category: 'PC_GAME', currency: 'Subscription' },
+  { name: 'Europa Universalis IV', slug: 'europa-universalis-4', category: 'PC_GAME', currency: 'Subscription / DLC' },
   { name: 'Hearts of Iron IV', slug: 'hearts-of-iron-4', category: 'PC_GAME', currency: 'Expansion Pack' },
   { name: 'Crusader Kings III', slug: 'crusader-kings-3', category: 'PC_GAME', currency: 'Chapter Pass' },
   { name: 'Stellaris', slug: 'stellaris', category: 'PC_GAME', currency: 'Season Pass' },
   { name: 'Cities: Skylines II', slug: 'cities-skylines-2', category: 'PC_GAME', currency: 'Expansion Pass' },
   { name: 'SimCity BuildIt', slug: 'simcity-buildit', category: 'MOBILE_GAME', currency: 'SimCash' },
 
-  // Racing & Sports
+  // ── Racing & Sports ──
   { name: 'Asphalt 9', slug: 'asphalt-9', category: 'MOBILE_GAME', currency: 'Tokens' },
   { name: 'Asphalt Legends Unite', slug: 'asphalt-legends-unite', category: 'MOBILE_GAME', currency: 'Tokens' },
   { name: 'Asphalt 8', slug: 'asphalt-8', category: 'MOBILE_GAME', currency: 'Tokens' },
@@ -312,7 +313,7 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Assetto Corsa', slug: 'assetto-corsa', category: 'PC_GAME', currency: 'Ultimate Pass' },
   { name: 'Assetto Corsa Competizione', slug: 'assetto-corsa-competizione', category: 'PC_GAME', currency: 'GT World Pass' },
   { name: 'BeamNG.drive', slug: 'beamng-drive', category: 'PC_GAME', currency: 'Game License' },
-  { name: 'Euro Truck Simulator 2', slug: 'euro-truck-simulator-2', category: 'PC_GAME', currency: 'Expansion Pack' },
+  { name: 'Euro Truck Simulator 2', slug: 'euro-truck-simulator-2', category: 'PC_GAME', currency: 'Map Expansion Pack' },
   { name: 'American Truck Simulator', slug: 'american-truck-simulator', category: 'PC_GAME', currency: 'State DLC Pack' },
   { name: 'Farming Simulator 25', slug: 'farming-simulator-25', category: 'PC_GAME', currency: 'Season Pass' },
   { name: 'Fishing Planet', slug: 'fishing-planet', category: 'PC_GAME', currency: 'BaitCoins' },
@@ -338,7 +339,7 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Football Manager Mobile', slug: 'football-manager-mobile', category: 'MOBILE_GAME', currency: 'Unlockables' },
   { name: 'MLB 9 Innings', slug: 'mlb-9-innings', category: 'MOBILE_GAME', currency: 'Stars' },
 
-  // Strategy & Cards
+  // ── Strategy, 4X & Cards ──
   { name: 'Hearthstone', slug: 'hearthstone', category: 'PC_GAME', currency: 'Runestones' },
   { name: 'Marvel Snap', slug: 'marvel-snap', category: 'MOBILE_GAME', currency: 'Gold' },
   { name: 'Yu-Gi-Oh! Master Duel', slug: 'yugioh-master-duel', category: 'PC_GAME', currency: 'Gems' },
@@ -360,7 +361,7 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Age of Origins', slug: 'age-of-origins', category: 'MOBILE_GAME', currency: 'Gold' },
   { name: 'Call of Dragons', slug: 'call-of-dragons', category: 'MOBILE_GAME', currency: 'Gems' },
 
-  // Horror & Action
+  // ── Horror & Suspense ──
   { name: 'Identity V', slug: 'identity-v', category: 'MOBILE_GAME', currency: 'Echoes' },
   { name: 'NetEase Identity V', slug: 'netease-identity-v', category: 'MOBILE_GAME', currency: 'Echoes' },
   { name: 'Dead by Daylight Mobile', slug: 'dead-by-daylight-mobile', category: 'MOBILE_GAME', currency: 'Auric Cells' },
@@ -370,7 +371,7 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Undawn', slug: 'undawn', category: 'MOBILE_GAME', currency: 'RC' },
   { name: 'Garena Undawn', slug: 'garena-undawn', category: 'MOBILE_GAME', currency: 'RC' },
   { name: 'Life is Strange', slug: 'life-is-strange', category: 'PC_GAME', currency: 'Episode Pass' },
-  { name: 'Granny', slug: 'granny', category: 'MOBILE_GAME', currency: 'No Ads Pass' },
+  { name: 'Granny', slug: 'granny', category: 'MOBILE_GAME', currency: 'No Ads / Supporter' },
   { name: 'Granny 2', slug: 'granny-2', category: 'MOBILE_GAME', currency: 'Supporter Pack' },
   { name: 'Granny 3', slug: 'granny-3', category: 'MOBILE_GAME', currency: 'Supporter Pack' },
   { name: 'Eyes: The Horror Game', slug: 'eyes-horror-game', category: 'MOBILE_GAME', currency: 'Coins' },
@@ -384,7 +385,7 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Phasmophobia', slug: 'phasmophobia', category: 'PC_GAME', currency: 'Ghost Hunter License' },
   { name: 'Outlast Trials', slug: 'outlast-trials', category: 'PC_GAME', currency: 'Murkoff Tokens' },
 
-  // Casual & Party
+  // ── Casual & Party ──
   { name: 'Candy Crush Saga', slug: 'candy-crush-saga', category: 'MOBILE_GAME', currency: 'Gold Bars' },
   { name: 'Candy Crush Soda Saga', slug: 'candy-crush-soda-saga', category: 'MOBILE_GAME', currency: 'Gold Bars' },
   { name: 'Coin Master', slug: 'coin-master', category: 'MOBILE_GAME', currency: 'Spins & Coins' },
@@ -414,93 +415,106 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Lethal Company', slug: 'lethal-company', category: 'PC_GAME', currency: 'Supporter Pack' },
 ];
 
-export async function seedDatabase(): Promise<void> {
-  console.log('[Startup] Seeding database with full product catalog...');
+async function seedAll() {
+  console.log(`Starting migration/upsert of ${ALL_GAMES.length} comprehensive games...`);
 
-  const existingAdmin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
-  if (!existingAdmin) {
-    const adminPassword = bcrypt.hashSync('admin123', 10);
-    await prisma.user.create({
-      data: { email: 'admin@topup.com', password: adminPassword, role: 'ADMIN' },
-    });
-    console.log('[Startup] Created default admin: admin@topup.com / admin123');
-  }
+  // Ensure Admin & Test users exist
+  const adminPassword = bcrypt.hashSync('admin123', 10);
+  const userPassword = bcrypt.hashSync('user123', 10);
 
-  let count = 0;
+  await prisma.user.upsert({
+    where: { email: 'admin@topup.com' },
+    update: {},
+    create: {
+      email: 'admin@topup.com',
+      password: adminPassword,
+      role: 'ADMIN',
+    },
+  });
+
+  await prisma.user.upsert({
+    where: { email: 'user@topup.com' },
+    update: {},
+    create: {
+      email: 'user@topup.com',
+      password: userPassword,
+      role: 'USER',
+    },
+  });
+
+  console.log('Verified core users (admin@topup.com / user@topup.com).');
+
+  let createdCount = 0;
+  let updatedCount = 0;
+
   for (const game of ALL_GAMES) {
-    const packages = generateDefaultPackages(game.currency);
-    try {
-      await prisma.product.upsert({
-        where: { slug: game.slug },
-        update: {
+    const packages = game.customPackages || generateDefaultPackages(game.currency);
+    const existing = await prisma.product.findUnique({
+      where: { slug: game.slug },
+      include: { packages: true },
+    });
+
+    if (existing) {
+      // Update metadata & ensure packages exist
+      await prisma.product.update({
+        where: { id: existing.id },
+        data: {
           name: game.name,
           category: game.category,
           isActive: true,
-          image: game.image || `/images/games/${game.slug}.png`,
+          image: game.image || existing.image || `/images/games/${game.slug}.png`,
         },
-        create: {
-          name: game.name,
-          slug: game.slug,
-          image: game.image || `/images/games/${game.slug}.png`,
-          category: game.category,
-          isActive: true,
-          packages: {
-            create: packages.map((pkg) => ({
+      });
+
+      if (existing.packages.length === 0) {
+        for (const pkg of packages) {
+          await prisma.package.create({
+            data: {
+              productId: existing.id,
               name: pkg.name,
               amount: pkg.amount,
               price: pkg.price,
               category: pkg.category,
-              badge: pkg.badge ?? null,
+              badge: pkg.badge || null,
+              isActive: true,
+            },
+          });
+        }
+      }
+      updatedCount++;
+    } else {
+      // Create fresh product with packages
+      await prisma.product.create({
+        data: {
+          name: game.name,
+          slug: game.slug,
+          category: game.category,
+          image: game.image || `/images/games/${game.slug}.png`,
+          isActive: true,
+          packages: {
+            create: packages.map((p) => ({
+              name: p.name,
+              amount: p.amount,
+              price: p.price,
+              category: p.category,
+              badge: p.badge || null,
               isActive: true,
             })),
           },
         },
       });
-      count++;
-    } catch (err: any) {
-      console.error(`[Startup] Failed to seed ${game.slug}:`, err.message);
+      createdCount++;
     }
   }
 
-  console.log(`[Startup] ✅ Synced and verified ${count} game products successfully.`);
+  console.log(`Seeding complete! Added: ${createdCount}, Updated: ${updatedCount}, Total Games in System: ${ALL_GAMES.length}`);
 }
 
-export async function runDatabaseStartup(): Promise<void> {
-  console.log('[Startup] Initializing database...');
-
-  try {
-    const schemaPath = path.join(__dirname, '..', '..', 'prisma', 'schema.prisma');
-    const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
-
-    if (isProd) {
-      console.log('[Startup] Running prisma migrate deploy...');
-      execSync(`npx prisma migrate deploy --schema="${schemaPath}"`, {
-        cwd: path.join(__dirname, '..', '..'),
-        stdio: 'pipe',
-        env: { ...process.env },
-        timeout: 60_000,
-      });
-      console.log('[Startup] ✅ Database migrations applied successfully.');
-    } else {
-      console.log('[Startup] Syncing schema...');
-    }
-  } catch (err: any) {
-    const msg = (err.stderr?.toString() || err.stdout?.toString() || err.message || '').trim();
-    console.warn('[Startup] Database init warning (non-fatal):', msg.substring(0, 300));
-  }
-
-  try {
-    await prisma.$connect();
-    const productCount = await prisma.product.count();
-    console.log(`[Startup] Found ${productCount} products in database.`);
-
-    if (productCount < 20) {
-      console.log('[Startup] Running auto-seed for full catalog...');
-      await seedDatabase();
-    } else {
-      console.log('[Startup] Catalog complete — ready.');
-    }
-  } catch (err: any) {
-    console.error('[Startup] Database connection/seed error:', err.message);
-  }
-}
+seedAll()
+  .catch((err) => {
+    console.error('Error seeding games:', err);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

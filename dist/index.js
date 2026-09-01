@@ -121,6 +121,8 @@ app.use('/api/payment', payments_1.default);
 app.use('/api/webhook', webhook_1.default);
 app.use('/api/payments/webhook', webhook_1.default);
 app.use('/api/payment/webhook', webhook_1.default);
+app.use('/webhooks/cutluy', webhook_1.default);
+app.use('/api/webhooks/cutluy', webhook_1.default);
 // ─── Product Image Upload ─────────────────────────────────────────────────────
 const auth_2 = require("./middleware/auth");
 const storage = multer_1.default.diskStorage({

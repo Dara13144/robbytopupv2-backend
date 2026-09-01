@@ -141,68 +141,31 @@ async function liveApiLookup(typeName, playerId, playerZoneId) {
         const url = `https://api-cek-id-game-ten.vercel.app/api/check-id-game?type_name=${typeName}&userId=${playerId.trim()}${zoneParam}`;
         console.log(`[Game Provider API] Querying live validation gateway: ${url}`);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        const timeout = setTimeout(() => controller.abort(), 2000); // 2 second fast timeout
         const response = await fetch(url, {
             method: 'GET',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                 'Accept': 'application/json',
-                'Accept-Language': 'en-US,en;q=0.9',
             },
             signal: controller.signal,
         });
         clearTimeout(timeout);
         if (!response.ok) {
             console.warn(`[Game Provider API] Live API returned HTTP ${response.status}. Will use sandbox fallback.`);
-            return null; // Signal: fall back to sandbox
-        }
-        const data = (await response.json());
-        console.log('[Game Provider API] Live API response:', JSON.stringify(data).slice(0, 300));
-        if (data && data.status === true) {
-            // Extract nickname from various response structures
-            const nickname = data.nickname ||
-                data?.data?.nickname ||
-                data?.data?.username ||
-                data?.data?.name ||
-                data.username ||
-                data.name ||
-                '';
-            if (nickname) {
-                return { success: true, nickname };
-            }
-            // Status was true but no nickname returned — sandbox will supply one
             return null;
         }
-        if (data && data.status === false) {
-            const errorMsg = (data.message || data.error || '').toLowerCase();
-            // Treat region-blocking and geo-restriction as API unavailability, not a player error.
-            // Fall back to sandbox so the user can still top up.
-            const isRegionBlock = errorMsg.includes('region') ||
-                errorMsg.includes('blocked') ||
-                errorMsg.includes('not available') ||
-                errorMsg.includes('geo') ||
-                errorMsg.includes('restricted') ||
-                errorMsg.includes('country') ||
-                errorMsg.includes('access denied');
-            if (isRegionBlock) {
-                console.warn(`[Game Provider API] Region/access block detected from live API: "${data.message}". Falling back to sandbox.`);
-                return null; // Signal: fall back to sandbox
-            }
-            // A genuine "player ID not found" error from the API
-            const displayError = data.message || data.error || 'Player ID invalid or not found. Please check and try again.';
-            return { success: false, error: displayError };
+        const data = (await response.json());
+        if (data && data.status === true) {
+            const nickname = data.nickname || data?.data?.nickname || data?.data?.username || data?.data?.name || data.username || data.name || '';
+            if (nickname)
+                return { success: true, nickname };
         }
-        // Ambiguous response — fall back to sandbox
         return null;
     }
     catch (e) {
-        if (e.name === 'AbortError') {
-            console.warn('[Game Provider API] Live API request timed out after 8s. Using sandbox fallback.');
-        }
-        else {
-            console.warn('[Game Provider API] Failed to reach live API (possible region block or network error). Using sandbox fallback.');
-        }
-        return null; // Signal: fall back to sandbox
+        console.warn('[Game Provider API] Live API exception or timeout:', e.message);
+        return null;
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,7 +175,7 @@ async function robloxLiveLookup(username) {
     try {
         console.log(`[Game Provider API] Querying Roblox API for username: ${username}`);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
+        const timeout = setTimeout(() => controller.abort(), 2000);
         const response = await fetch('https://users.roblox.com/v1/usernames/users', {
             method: 'POST',
             headers: {
@@ -228,7 +191,6 @@ async function robloxLiveLookup(username) {
         });
         clearTimeout(timeout);
         if (!response.ok) {
-            console.warn(`[Game Provider API] Roblox API returned HTTP ${response.status}. Using sandbox fallback.`);
             return null;
         }
         const data = (await response.json());
@@ -236,17 +198,10 @@ async function robloxLiveLookup(username) {
             const user = data.data[0];
             return { success: true, nickname: `${user.displayName} (@${user.name})` };
         }
-        // User was not found in the live API — return explicit failure
         return { success: false, error: 'Roblox username not found. Please check your username and try again.' };
     }
     catch (e) {
-        if (e.name === 'AbortError') {
-            console.warn('[Game Provider API] Roblox API timed out. Using sandbox fallback.');
-        }
-        else {
-            console.warn('[Game Provider API] Roblox API unreachable. Using sandbox fallback.');
-        }
-        return null; // Fall back to sandbox
+        return null;
     }
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,7 +216,7 @@ async function mrxApiLookup(gameSlug, playerId, playerZoneId) {
         const url = 'https://www.mrxtopup.com/api/check-user';
         console.log(`[Game Provider API] Querying mrxtopup check-user API: ${url} with payload:`, payload);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+        const timeout = setTimeout(() => controller.abort(), 2000); // 2 second timeout
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -276,33 +231,18 @@ async function mrxApiLookup(gameSlug, playerId, playerZoneId) {
         });
         clearTimeout(timeout);
         if (!response.ok) {
-            console.warn(`[Game Provider API] mrxtopup check-user API returned HTTP ${response.status}. Using fallback.`);
             return null;
         }
         const data = (await response.json());
-        console.log('[Game Provider API] mrxtopup check-user response:', data);
         if (data && data.success === true) {
             const nickname = data.name || data.nickname || '';
             if (nickname) {
                 return { success: true, nickname };
             }
         }
-        if (data && data.success === false) {
-            if (process.env.SANDBOX_MODE === 'true') {
-                console.warn(`[Game Provider API] Sandbox active. Bypassing check-user error: "${data.message || data.error}"`);
-                return null;
-            }
-            return { success: false, error: data.message || 'Player ID invalid or not found.' };
-        }
         return null;
     }
     catch (e) {
-        if (e.name === 'AbortError') {
-            console.warn('[Game Provider API] mrxtopup check-user API request timed out after 8s.');
-        }
-        else {
-            console.warn('[Game Provider API] Failed to reach mrxtopup check-user API:', e.message);
-        }
         return null;
     }
 }

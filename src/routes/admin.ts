@@ -1,8 +1,18 @@
 import { Router, Response } from 'express';
 import prisma from '../prisma';
 import { authenticateJWT, requireAdmin, AuthenticatedRequest } from '../middleware/auth';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
+const BACKUPS_DIR = path.join(process.cwd(), 'backups');
+if (!fs.existsSync(BACKUPS_DIR)) {
+  try {
+    fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+  } catch (e) {
+    console.error('Failed to create backups dir:', e);
+  }
+}
 
 // Apply auth + admin restriction to all paths in this router
 router.use(authenticateJWT, requireAdmin);
@@ -306,20 +316,46 @@ router.post('/products/:productId/packages', async (req: AuthenticatedRequest, r
   }
 });
 
-// 7b. Product management: Update a product's image URL
+// 7b. Product management: Update any product field (Name, Category, Image, Status, Slug)
 router.patch('/products/:id', async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { image, name } = req.body;
+    const { image, name, category, isActive, slug } = req.body;
     const data: any = {};
     if (image !== undefined) data.image = image;
-    if (name) data.name = name;
+    if (name !== undefined) data.name = name;
+    if (category !== undefined) data.category = category;
+    if (isActive !== undefined) data.isActive = isActive;
+    if (slug !== undefined) data.slug = slug;
 
     const updated = await prisma.product.update({ where: { id }, data });
-    return res.status(200).json({ message: 'Product updated', product: updated });
+    console.log(`[Admin Dashboard] Updated product: ${updated.name} (${updated.id})`);
+    return res.status(200).json({ message: 'Product updated successfully', product: updated });
   } catch (error: any) {
     console.error('Admin update product error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error: ' + (error.message || '') });
+  }
+});
+
+// 7c. Package management: Update any package field (Name, Amount, Price, Category, Badge, Status)
+router.patch('/packages/:id', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, amount, price, category, badge, isActive } = req.body;
+    const data: any = {};
+    if (name !== undefined) data.name = name;
+    if (amount !== undefined) data.amount = parseInt(amount, 10);
+    if (price !== undefined) data.price = parseFloat(price);
+    if (category !== undefined) data.category = category;
+    if (badge !== undefined) data.badge = badge;
+    if (isActive !== undefined) data.isActive = isActive;
+
+    const updated = await prisma.package.update({ where: { id }, data });
+    console.log(`[Admin Dashboard] Updated package: ${updated.name} ($${updated.price})`);
+    return res.status(200).json({ message: 'Package updated successfully', package: updated });
+  } catch (error: any) {
+    console.error('Admin update package error:', error);
+    return res.status(500).json({ error: 'Internal server error: ' + (error.message || '') });
   }
 });
 
@@ -346,6 +382,262 @@ router.delete('/packages/:id', async (req: AuthenticatedRequest, res: Response) 
   } catch (error: any) {
     console.error('Admin delete package error:', error);
     return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 10. Database Backup: Full JSON export
+router.get('/backup/export', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const products = await prisma.product.findMany({
+      include: {
+        packages: {
+          include: {
+            stocks: true,
+          },
+        },
+      },
+    });
+
+    const orders = await prisma.order.findMany({
+      include: {
+        package: true,
+      },
+    });
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    const backupData = {
+      system: 'ROBBY-TOPUP',
+      version: '1.0.0',
+      exportedAt: new Date().toISOString(),
+      counts: {
+        products: products.length,
+        packages: products.reduce((acc: number, p: any) => acc + (p.packages?.length || 0), 0),
+        orders: orders.length,
+        users: users.length,
+      },
+      data: {
+        products,
+        orders,
+        users,
+      },
+    };
+
+    const filename = `backup-robby-topup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.status(200).send(JSON.stringify(backupData, null, 2));
+  } catch (error: any) {
+    console.error('Backup export error:', error);
+    return res.status(500).json({ error: 'Failed to export system backup' });
+  }
+});
+
+// 11. Database Backup: Create Server Snapshot
+router.post('/backup/create-snapshot', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const products = await prisma.product.findMany({
+      include: {
+        packages: {
+          include: {
+            stocks: true,
+          },
+        },
+      },
+    });
+
+    const orders = await prisma.order.findMany({
+      include: {
+        package: true,
+      },
+    });
+
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `snapshot-${timestamp}.json`;
+    const filepath = path.join(BACKUPS_DIR, filename);
+
+    const snapshotData = {
+      system: 'ROBBY-TOPUP',
+      version: '1.0.0',
+      exportedAt: new Date().toISOString(),
+      counts: {
+        products: products.length,
+        packages: products.reduce((acc: number, p: any) => acc + (p.packages?.length || 0), 0),
+        orders: orders.length,
+        users: users.length,
+      },
+      data: {
+        products,
+        orders,
+        users,
+      },
+    };
+
+    fs.writeFileSync(filepath, JSON.stringify(snapshotData, null, 2), 'utf-8');
+    const stats = fs.statSync(filepath);
+
+    return res.status(200).json({
+      message: 'Server snapshot created successfully',
+      snapshot: {
+        filename,
+        size: stats.size,
+        createdAt: new Date().toISOString(),
+        counts: snapshotData.counts,
+      },
+    });
+  } catch (error: any) {
+    console.error('Create snapshot error:', error);
+    return res.status(500).json({ error: 'Failed to create server snapshot' });
+  }
+});
+
+// 12. Database Backup: List all server snapshots
+router.get('/backup/snapshots', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!fs.existsSync(BACKUPS_DIR)) {
+      return res.status(200).json({ snapshots: [] });
+    }
+
+    const files = fs.readdirSync(BACKUPS_DIR).filter(f => f.endsWith('.json'));
+    const snapshots = files.map(file => {
+      const filepath = path.join(BACKUPS_DIR, file);
+      const stats = fs.statSync(filepath);
+      let counts = { products: 0, packages: 0, orders: 0, users: 0 };
+      try {
+        const content = JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+        if (content.counts) counts = content.counts;
+      } catch (e) {}
+
+      return {
+        filename: file,
+        size: stats.size,
+        createdAt: stats.birthtime.toISOString(),
+        counts,
+      };
+    }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return res.status(200).json({ snapshots });
+  } catch (error: any) {
+    console.error('List snapshots error:', error);
+    return res.status(500).json({ error: 'Failed to list snapshots' });
+  }
+});
+
+// 13. Database Backup: Restore from snapshot or JSON
+router.post('/backup/restore', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { filename, backupPayload } = req.body;
+    let dataToRestore: any = null;
+
+    if (filename) {
+      const filepath = path.join(BACKUPS_DIR, filename);
+      if (!fs.existsSync(filepath)) {
+        return res.status(404).json({ error: 'Snapshot file not found' });
+      }
+      dataToRestore = JSON.parse(fs.readFileSync(filepath, 'utf-8'));
+    } else if (backupPayload) {
+      dataToRestore = backupPayload;
+    } else {
+      return res.status(400).json({ error: 'Missing snapshot filename or backup payload' });
+    }
+
+    if (!dataToRestore.data || !Array.isArray(dataToRestore.data.products)) {
+      return res.status(400).json({ error: 'Invalid backup file format' });
+    }
+
+    // Restore Products & Packages
+    let restoredProductsCount = 0;
+    let restoredPackagesCount = 0;
+
+    for (const prod of dataToRestore.data.products) {
+      const upsertedProduct = await prisma.product.upsert({
+        where: { slug: prod.slug },
+        update: {
+          name: prod.name,
+          category: prod.category,
+          image: prod.image,
+          isActive: prod.isActive ?? true,
+        },
+        create: {
+          name: prod.name,
+          slug: prod.slug,
+          category: prod.category,
+          image: prod.image,
+          isActive: prod.isActive ?? true,
+        },
+      });
+      restoredProductsCount++;
+
+      if (Array.isArray(prod.packages)) {
+        for (const pkg of prod.packages) {
+          await prisma.package.upsert({
+            where: { id: pkg.id },
+            update: {
+              name: pkg.name,
+              amount: pkg.amount,
+              price: pkg.price,
+              isActive: pkg.isActive ?? true,
+              category: pkg.category ?? 'NORMAL',
+              badge: pkg.badge ?? null,
+            },
+            create: {
+              id: pkg.id,
+              productId: upsertedProduct.id,
+              name: pkg.name,
+              amount: pkg.amount,
+              price: pkg.price,
+              isActive: pkg.isActive ?? true,
+              category: pkg.category ?? 'NORMAL',
+              badge: pkg.badge ?? null,
+            },
+          });
+          restoredPackagesCount++;
+        }
+      }
+    }
+
+    console.log(`[Backup System] Restored ${restoredProductsCount} products and ${restoredPackagesCount} packages`);
+    return res.status(200).json({
+      message: `System restored successfully: ${restoredProductsCount} products, ${restoredPackagesCount} packages.`,
+      counts: {
+        products: restoredProductsCount,
+        packages: restoredPackagesCount,
+      },
+    });
+  } catch (error: any) {
+    console.error('Backup restore error:', error);
+    return res.status(500).json({ error: 'Failed to restore backup: ' + (error.message || '') });
+  }
+});
+
+// 14. Database Backup: Delete a server snapshot
+router.delete('/backup/snapshots/:filename', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const filepath = path.join(BACKUPS_DIR, filename);
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
+    return res.status(200).json({ message: 'Snapshot deleted successfully' });
+  } catch (error: any) {
+    console.error('Delete snapshot error:', error);
+    return res.status(500).json({ error: 'Failed to delete snapshot' });
   }
 });
 

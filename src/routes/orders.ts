@@ -3,86 +3,10 @@ import prisma from '../prisma';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { lookupPlayerNickname } from '../utils/gameProviderMock';
 import { generateABAMockPayment, generateBakongKHQR, verifyBakongWebhook } from '../utils/paymentMock';
-import { sendTelegramNotification, formatTelegramBotOrderMessage } from '../utils/telegram';
+import { sendTelegramNotification } from '../utils/telegram';
 import { verifyAbaKhqrPayment, processVerifiedPayment } from '../utils/paymentVerification';
-import { PRODUCTS_SEED, seedDatabase } from '../utils/startup';
 
 const router = Router();
-
-async function resolvePackageSafely(packageId: string) {
-  // 1. Try finding package by direct ID in database
-  let pkg = await prisma.package.findUnique({
-    where: { id: packageId },
-    include: { product: true },
-  }).catch(() => null);
-
-  if (pkg) return pkg;
-
-  // 2. If not found in DB, search seed catalog
-  for (const p of PRODUCTS_SEED) {
-    const matchedSeedPkg = p.packages.find((sp, idx) =>
-      packageId === `pkg_${p.slug}_${idx}` ||
-      packageId.startsWith(p.slug) ||
-      packageId.includes(sp.name.toLowerCase().replace(/\s+/g, '-')) ||
-      packageId === sp.name ||
-      packageId === sp.amount.toString()
-    );
-
-    if (matchedSeedPkg) {
-      // Find or create product in DB
-      let dbProduct = await prisma.product.findUnique({
-        where: { slug: p.slug },
-        include: { packages: true },
-      }).catch(() => null);
-
-      if (!dbProduct) {
-        dbProduct = await prisma.product.create({
-          data: {
-            name: p.name,
-            slug: p.slug,
-            image: p.image,
-            category: p.category,
-            isActive: true,
-            packages: {
-              create: p.packages.map((sp) => ({
-                name: sp.name,
-                amount: sp.amount,
-                price: sp.price,
-                category: sp.category,
-                badge: sp.badge || null,
-                isActive: true,
-              })),
-            },
-          },
-          include: { packages: true },
-        }).catch(() => null);
-      }
-
-      if (dbProduct && dbProduct.packages.length > 0) {
-        const foundPkg =
-          dbProduct.packages.find((pk) => pk.name === matchedSeedPkg.name || pk.amount === matchedSeedPkg.amount) ||
-          dbProduct.packages[0];
-        return {
-          ...foundPkg,
-          product: dbProduct,
-        };
-      }
-    }
-  }
-
-  // 3. Fallback: return first package from DB or create a default one
-  const anyPkg = await prisma.package.findFirst({
-    include: { product: true },
-  }).catch(() => null);
-
-  if (anyPkg) return anyPkg;
-
-  // Trigger database seed
-  await seedDatabase().catch(() => {});
-  return await prisma.package.findFirst({
-    include: { product: true },
-  }).catch(() => null);
-}
 
 // 1. Create a top-up order (Public / Authenticated)
 // Matches route POST /api/orders/
@@ -98,8 +22,11 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ error: 'Invalid payment method. Use ABA, BAKONG, or CANADIA' });
     }
 
-    // Fetch the package details safely
-    const pkg = await resolvePackageSafely(packageId);
+    // Fetch the package details
+    const pkg = await prisma.package.findUnique({
+      where: { id: packageId },
+      include: { product: true },
+    });
 
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found' });
@@ -128,13 +55,8 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-production-12345';
       try {
         const decoded = require('jsonwebtoken').verify(token, JWT_SECRET) as { id: string; email: string };
-        // Verify user actually exists in DB to avoid FK constraint violation
-        const userExists = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true } });
-        if (userExists) {
-          userId = decoded.id;
-          contactEmail = decoded.email;
-        }
-        // If user not found in DB, continue as guest (userId remains null)
+        userId = decoded.id;
+        contactEmail = decoded.email;
       } catch (err) {
         // Ignore invalid token and create as guest
       }
@@ -204,6 +126,39 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
+    // Send Telegram Alert for new order
+    const productSlug = pkg.product.slug || '';
+    const isMLBB = productSlug.includes('mobile-legends');
+    const isFreeFire = productSlug.includes('free-fire');
+    const isValorant = productSlug.includes('valorant');
+    const isBloodStrike = productSlug.includes('blood-strike');
+    const isHoK = productSlug.includes('honor-of-kings');
+    const isFarlight = productSlug.includes('farlight');
+    const isDeltaForce = productSlug.includes('delta-force');
+
+    let credentialsLabel = `<b>Player ID:</b> <code>${playerId}</code>`;
+    if (isMLBB) {
+      credentialsLabel = `<b>Mobile Legends ID:</b> <code>${playerId}</code>\n<b>Server ID:</b> <code>${playerZoneId || 'N/A'}</code>`;
+    } else if (isFreeFire) {
+      credentialsLabel = `<b>Free Fire ID:</b> <code>${playerId}</code>`;
+    } else if (isValorant) {
+      credentialsLabel = `<b>Valorant ID:</b> <code>${playerId}</code>`;
+    } else if (isBloodStrike) {
+      credentialsLabel = `<b>Blood Strike ID:</b> <code>${playerId}</code>`;
+    } else if (isHoK) {
+      credentialsLabel = `<b>Honor of Kings ID:</b> <code>${playerId}</code>`;
+    } else if (isFarlight) {
+      credentialsLabel = `<b>Farlight 84 ID:</b> <code>${playerId}</code>`;
+    } else if (isDeltaForce) {
+      credentialsLabel = `<b>Delta Force ID:</b> <code>${playerId}</code>`;
+    } else if (playerZoneId) {
+      credentialsLabel = `<b>Player ID:</b> <code>${playerId}</code>\n<b>Server/Zone ID:</b> <code>${playerZoneId}</code>`;
+    }
+
+    const playerIdFull = playerZoneId ? `${playerId} (${playerZoneId})` : playerId;
+    const telegramMessage = `${playerIdFull} ${pkg.name}`.trim();
+    await sendTelegramNotification(telegramMessage);
+
     return res.status(201).json({
       message: 'Order created successfully',
       order: {
@@ -216,9 +171,9 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       },
       paymentDetails,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Order creation error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
@@ -326,9 +281,9 @@ router.post('/verify/:txnId', async (req, res) => {
       return res.status(410).json({ verified: false, error: 'Order has expired. Please create a new order.' });
     }
 
-    // Expire orders older than 5 minutes
+    // Expire orders older than 15 minutes
     const orderAgeMs = Date.now() - new Date(order.createdAt).getTime();
-    if (orderAgeMs > 5 * 60 * 1000) {
+    if (orderAgeMs > 15 * 60 * 1000) {
       await prisma.order.update({
         where: { id: order.id },
         data: { paymentStatus: 'EXPIRED', status: 'CANCELLED', deliveryStatus: 'FAILED' },

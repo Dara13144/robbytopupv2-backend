@@ -24,8 +24,8 @@ export declare function processVerifiedPayment(order: any, gatewayRef: string): 
         createdAt: Date;
         updatedAt: Date;
         price: number;
-        packageId: string;
         playerId: string;
+        packageId: string;
         playerZoneId: string | null;
         userId: string | null;
         playerNickname: string | null;

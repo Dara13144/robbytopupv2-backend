@@ -7,9 +7,6 @@ dist/
 # databases
 *.db
 *.db-journal
-prisma/*.db
-prisma/*.db-journal
-dev.db
 
 # environment configurations
 .env
@@ -26,3 +23,4 @@ yarn-error.log*
 # system files
 .DS_Store
 *.tsbuildinfo
+backups/

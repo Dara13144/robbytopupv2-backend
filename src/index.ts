@@ -66,7 +66,7 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'public', 'uploads
 app.get('/', (req, res) => {
   res.status(200).json({
     status: 'healthy',
-    message: 'ROBBY-TOPUP Backend API Server is running successfully!',
+    message: 'DaraTopup Backend API Server is running successfully!',
     timestamp: new Date().toISOString(),
     sandbox: process.env.SANDBOX_MODE === 'true',
     version: '1.0.2',
@@ -79,7 +79,7 @@ app.get('/api/health', async (req, res) => {
     await prisma.$queryRaw`SELECT 1`;
     res.status(200).json({
       status: 'healthy',
-      message: 'ROBBY-TOPUP Backend API Server is running successfully!',
+      message: 'DaraTopup Backend API Server is running successfully!',
       timestamp: new Date().toISOString(),
       sandbox: process.env.SANDBOX_MODE === 'true',
       db: 'connected',
@@ -87,7 +87,7 @@ app.get('/api/health', async (req, res) => {
   } catch (err: any) {
     res.status(200).json({
       status: 'healthy',
-      message: 'ROBBY-TOPUP Backend API Server is running successfully!',
+      message: 'DaraTopup Backend API Server is running successfully!',
       timestamp: new Date().toISOString(),
       sandbox: process.env.SANDBOX_MODE === 'true',
       db: 'error: ' + err.message,
@@ -128,6 +128,8 @@ app.use('/api/payment', paymentsRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/payments/webhook', webhookRouter);
 app.use('/api/payment/webhook', webhookRouter);
+app.use('/webhooks/cutluy', webhookRouter);
+app.use('/api/webhooks/cutluy', webhookRouter);
 
 // ─── Product Image Upload ─────────────────────────────────────────────────────
 import { authenticateJWT, requireAdmin } from './middleware/auth';
@@ -181,7 +183,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // ─── BACKGROUND PAYMENT SWEEPER ───────────────────────────────────────────────
-const SWEEP_INTERVAL_MS = 5_000; // 5 seconds auto-poll
+const SWEEP_INTERVAL_MS = 30_000; // 30 seconds
 let sweepRunning = false;
 
 async function runPaymentSweep() {

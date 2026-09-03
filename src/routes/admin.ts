@@ -59,17 +59,20 @@ router.get('/stats', async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
-    const popularity = productStats.map((prod) => {
+    const popMap = new Map<string, { id: string; name: string; salesCount: number }>();
+    for (const prod of productStats) {
       let salesCount = 0;
-      let revenue = 0;
       prod.packages.forEach((pkg) => {
         salesCount += pkg._count.orders;
       });
-      return {
-        name: prod.name,
-        salesCount,
-      };
-    }).sort((a, b) => b.salesCount - a.salesCount);
+      const existing = popMap.get(prod.name);
+      if (existing) {
+        existing.salesCount += salesCount;
+      } else {
+        popMap.set(prod.name, { id: prod.id, name: prod.name, salesCount });
+      }
+    }
+    const popularity = Array.from(popMap.values()).sort((a, b) => b.salesCount - a.salesCount);
 
     return res.status(200).json({
       metrics: {

@@ -266,7 +266,7 @@ export async function generateBakongKHQR(
         const currency = isKhrAccount ? 'KHR' : 'USD';
         const finalAmount = isKhrAccount ? Math.round(amount * 4100) : parseFloat(amountStr);
 
-        const frontendUrl = (process.env.FRONTEND_URL || 'https://daratopup.com').trim().replace(/\/$/, '');
+        const frontendUrl = (process.env.FRONTEND_URL || 'https://robbytopupv2-frontend.onrender.com').trim().replace(/\/$/, '');
         const backendUrl = (process.env.BACKEND_URL || 'https://robbytopupv2-backend.onrender.com').trim().replace(/\/$/, '');
 
         const payload = {

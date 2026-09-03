@@ -10,6 +10,11 @@ import prisma from './prisma';
 // Load environmental variables FIRST — before any other imports
 dotenv.config();
 
+// Ensure DIRECT_URL is available for Prisma PostgreSQL pooling
+if (!process.env.DIRECT_URL && process.env.DATABASE_URL) {
+  process.env.DIRECT_URL = process.env.DATABASE_URL.replace('?pgbouncer=true', '').replace('&pgbouncer=true', '');
+}
+
 // Route Imports
 import authRouter from './routes/auth';
 import productsRouter from './routes/products';

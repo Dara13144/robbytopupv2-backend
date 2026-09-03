@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import prisma from '../prisma';
 import bcrypt from 'bcryptjs';
 
@@ -469,8 +470,32 @@ export async function runDatabaseStartup(): Promise<void> {
   console.log('[Startup] Initializing database...');
 
   const schemaPath = path.join(__dirname, '..', '..', 'prisma', 'schema.prisma');
+  const prodSchemaPath = path.join(__dirname, '..', '..', 'prisma', 'schema.prod.prisma');
   const backendRoot = path.join(__dirname, '..', '..');
-  const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
+  const dbUrl = process.env.DATABASE_URL || '';
+  const isPostgres = dbUrl.startsWith('postgresql:') || dbUrl.startsWith('postgres:');
+  const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true' || Boolean(process.env.RENDER_SERVICE_ID) || isPostgres;
+
+  // Auto-heal schema mismatch: if PostgreSQL is configured, ensure postgresql schema is active
+  if (isPostgres) {
+    try {
+      if (fs.existsSync(schemaPath) && fs.existsSync(prodSchemaPath)) {
+        const currentSchema = fs.readFileSync(schemaPath, 'utf8');
+        if (currentSchema.includes('provider = "sqlite"') || currentSchema.includes("provider = 'sqlite'")) {
+          console.log('[Startup] Detected PostgreSQL DATABASE_URL with SQLite schema. Synchronizing schema.prod.prisma...');
+          fs.copyFileSync(prodSchemaPath, schemaPath);
+          execSync(`npx prisma generate --schema="${schemaPath}"`, {
+            cwd: backendRoot,
+            stdio: 'pipe',
+            env: { ...process.env },
+          });
+          console.log('[Startup] ✅ Prisma Client synchronized for PostgreSQL.');
+        }
+      }
+    } catch (healErr: any) {
+      console.warn('[Startup] Auto-heal warning:', healErr.message);
+    }
+  }
 
   try {
     if (isProd) {
@@ -512,6 +537,23 @@ export async function runDatabaseStartup(): Promise<void> {
     await prisma.$connect();
     const productCount = await prisma.product.count();
     console.log(`[Startup] Found ${productCount} products in database.`);
+
+    // Ensure default administrator accounts exist
+    const adminPassword = await bcrypt.hash('admin123', 10);
+    for (const email of ['admin@topup.com', 'admin@gmail.com']) {
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (!existing) {
+        await prisma.user.create({
+          data: { email, password: adminPassword, role: 'ADMIN' },
+        });
+        console.log(`[Startup] Created default admin account: ${email}`);
+      } else if (existing.role !== 'ADMIN') {
+        await prisma.user.update({
+          where: { email },
+          data: { role: 'ADMIN' },
+        });
+      }
+    }
 
     if (productCount < 20) {
       console.log('[Startup] Running auto-seed for full catalog...');

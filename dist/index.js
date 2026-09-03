@@ -13,6 +13,10 @@ const multer_1 = __importDefault(require("multer"));
 const prisma_1 = __importDefault(require("./prisma"));
 // Load environmental variables FIRST — before any other imports
 dotenv_1.default.config();
+// Ensure DIRECT_URL is available for Prisma PostgreSQL pooling
+if (!process.env.DIRECT_URL && process.env.DATABASE_URL) {
+    process.env.DIRECT_URL = process.env.DATABASE_URL.replace('?pgbouncer=true', '').replace('&pgbouncer=true', '');
+}
 // Route Imports
 const auth_1 = __importDefault(require("./routes/auth"));
 const products_1 = __importDefault(require("./routes/products"));

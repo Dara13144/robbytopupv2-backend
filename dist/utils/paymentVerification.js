@@ -1,12 +1,14 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.verifyAbaKhqrPayment = verifyAbaKhqrPayment;
 exports.processVerifiedPayment = processVerifiedPayment;
 exports.expireOldOrders = expireOldOrders;
-const client_1 = require("@prisma/client");
+const prisma_1 = __importDefault(require("../prisma"));
 const paymentMock_1 = require("./paymentMock");
 const telegram_1 = require("./telegram");
-const prisma = new client_1.PrismaClient();
 const SANDBOX_MODE = process.env.SANDBOX_MODE === 'true';
 const SANDBOX_AUTO_MS = 15000; // sandbox auto-approve after 15s
 // ── Logging helpers ──────────────────────────────────────────────────────────
@@ -31,7 +33,7 @@ async function verifyAbaKhqrPayment(order) {
     }
     log('Verification', txnId, `Starting gateway verification. MD5=${md5} Amount=$${order.price}`);
     // -- 1. Replay attack guard ------------------------------------------------
-    const replayOrder = await prisma.order.findFirst({
+    const replayOrder = await prisma_1.default.order.findFirst({
         where: { paymentMd5: md5, paymentStatus: 'PAID', id: { not: order.id } },
     });
     if (replayOrder) {
@@ -98,7 +100,7 @@ async function processVerifiedPayment(order, gatewayRef) {
     const txnId = order.paymentTxnId;
     log('Delivery', txnId, `Initiating delivery workflow. GatewayRef: "${gatewayRef}"`);
     // Guard: idempotency
-    const freshCheck = await prisma.order.findUnique({ where: { id: order.id } });
+    const freshCheck = await prisma_1.default.order.findUnique({ where: { id: order.id } });
     if (freshCheck?.paymentStatus === 'PAID' || freshCheck?.paymentStatus === 'SUCCESS') {
         log('Delivery', txnId, 'Order already PAID or SUCCESS -- skipping duplicate processing.');
         return {
@@ -108,7 +110,7 @@ async function processVerifiedPayment(order, gatewayRef) {
         };
     }
     // Execute database updates and stock claiming atomically
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma_1.default.$transaction(async (tx) => {
         let stockCode = null;
         let isVoucher = order.package?.category === 'CODE_VOUCHER';
         if (isVoucher) {
@@ -211,7 +213,7 @@ async function processVerifiedPayment(order, gatewayRef) {
 async function expireOldOrders() {
     const expiryCutoff = new Date(Date.now() - 15 * 60 * 1000); // 15 minutes ago
     try {
-        const expiredOrders = await prisma.order.findMany({
+        const expiredOrders = await prisma_1.default.order.findMany({
             where: {
                 paymentStatus: 'PENDING',
                 createdAt: { lt: expiryCutoff },
@@ -231,7 +233,7 @@ async function expireOldOrders() {
                 await processVerifiedPayment(order, `SWEEPER-AUTO-${order.paymentMd5 || order.paymentTxnId}`);
             }
             else {
-                await prisma.order.update({
+                await prisma_1.default.order.update({
                     where: { id: order.id },
                     data: {
                         paymentStatus: 'EXPIRED',

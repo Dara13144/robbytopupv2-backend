@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -43,6 +10,7 @@ exports.generateBakongKHQR = generateBakongKHQR;
 exports.checkBakongPaymentStatus = checkBakongPaymentStatus;
 exports.verifyBakongWebhook = verifyBakongWebhook;
 const crypto_1 = __importDefault(require("crypto"));
+const prisma_1 = __importDefault(require("../prisma"));
 /**
  * Computes the ABA HMAC-SHA256 signature based on documentation
  */
@@ -383,9 +351,7 @@ async function checkBakongPaymentStatus(md5, khpayTxnId, ctx) {
     const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_7TNbEHrfs2CDCc5ze1atGCIM6ISYZQwD';
     if (cutluyApiKey) {
         try {
-            const { PrismaClient } = await Promise.resolve().then(() => __importStar(require('@prisma/client')));
-            const prismaClient = new PrismaClient();
-            const order = await prismaClient.order.findFirst({
+            const order = await prisma_1.default.order.findFirst({
                 where: {
                     OR: [
                         { paymentMd5: sanitizedMd5 },
@@ -394,7 +360,6 @@ async function checkBakongPaymentStatus(md5, khpayTxnId, ctx) {
                     ]
                 }
             });
-            await prismaClient.$disconnect();
             const cutluyId = order?.gatewayRef;
             if (cutluyId && !cutluyId.startsWith('MOCK') && !cutluyId.startsWith('rbkn')) {
                 const checkUrl = `https://cutluy.com/v1/payments/${cutluyId}`;
@@ -458,9 +423,7 @@ async function checkBakongPaymentStatus(md5, khpayTxnId, ctx) {
     const relayToken = isRelay ? token : '';
     if (relayToken) {
         try {
-            const { PrismaClient } = await Promise.resolve().then(() => __importStar(require('@prisma/client')));
-            const prismaClient = new PrismaClient();
-            const order = await prismaClient.order.findFirst({
+            const order = await prisma_1.default.order.findFirst({
                 where: {
                     OR: [
                         { paymentMd5: sanitizedMd5 },
@@ -470,7 +433,6 @@ async function checkBakongPaymentStatus(md5, khpayTxnId, ctx) {
                 }
             });
             const sessionId = order?.gatewayRef;
-            await prismaClient.$disconnect();
             if (sessionId) {
                 const checkUrl = `${relayUrl}/web_checkouts/details`;
                 console.log(`[Payment Verification] [Bakong Relay Web Checkout] Checking session: ${checkUrl} session_id=${sessionId}`);
@@ -507,9 +469,7 @@ async function checkBakongPaymentStatus(md5, khpayTxnId, ctx) {
     // ── Sandbox Auto-Approve simulation bypass ──────────────────────────────────
     if (process.env.SANDBOX_MODE === 'true') {
         try {
-            const { PrismaClient } = await Promise.resolve().then(() => __importStar(require('@prisma/client')));
-            const prismaClient = new PrismaClient();
-            const order = await prismaClient.order.findFirst({
+            const order = await prisma_1.default.order.findFirst({
                 where: {
                     OR: [
                         { paymentMd5: sanitizedMd5 },
@@ -522,11 +482,9 @@ async function checkBakongPaymentStatus(md5, khpayTxnId, ctx) {
                 const elapsedMs = Date.now() - new Date(order.createdAt).getTime();
                 if (elapsedMs >= 15000) {
                     console.log(`[Payment Verification] [Sandbox Auto-Approve] Order ${order.paymentTxnId} elapsed ${elapsedMs / 1000}s. Auto-confirming payment.`);
-                    await prismaClient.$disconnect();
                     return true;
                 }
             }
-            await prismaClient.$disconnect();
         }
         catch (e) {
             console.error('[Payment Verification] Sandbox auto-approve check error:', e.message);

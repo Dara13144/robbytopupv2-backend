@@ -1,8 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../prisma';
 import { checkBakongPaymentStatus, PaymentVerificationContext } from './paymentMock';
 import { sendTelegramNotification } from './telegram';
-
-const prisma = new PrismaClient();
 
 const SANDBOX_MODE = process.env.SANDBOX_MODE === 'true';
 const SANDBOX_AUTO_MS = 15000; // sandbox auto-approve after 15s

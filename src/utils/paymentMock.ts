@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import prisma from '../prisma';
 
 export interface ABAPaymentRequest {
   req_time: string;
@@ -434,9 +435,7 @@ export async function checkBakongPaymentStatus(
   const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_7TNbEHrfs2CDCc5ze1atGCIM6ISYZQwD';
   if (cutluyApiKey) {
     try {
-      const { PrismaClient } = await import('@prisma/client');
-      const prismaClient = new PrismaClient();
-      const order = await prismaClient.order.findFirst({
+      const order = await prisma.order.findFirst({
         where: {
           OR: [
             { paymentMd5: sanitizedMd5 },
@@ -445,7 +444,6 @@ export async function checkBakongPaymentStatus(
           ]
         }
       });
-      await prismaClient.$disconnect();
 
       const cutluyId = order?.gatewayRef;
       if (cutluyId && !cutluyId.startsWith('MOCK') && !cutluyId.startsWith('rbkn')) {
@@ -514,9 +512,7 @@ export async function checkBakongPaymentStatus(
 
   if (relayToken) {
     try {
-      const { PrismaClient } = await import('@prisma/client');
-      const prismaClient = new PrismaClient();
-      const order = await prismaClient.order.findFirst({
+      const order = await prisma.order.findFirst({
         where: {
           OR: [
             { paymentMd5: sanitizedMd5 },
@@ -527,7 +523,6 @@ export async function checkBakongPaymentStatus(
       });
       
       const sessionId = order?.gatewayRef;
-      await prismaClient.$disconnect();
 
       if (sessionId) {
         const checkUrl = `${relayUrl}/web_checkouts/details`;
@@ -565,9 +560,7 @@ export async function checkBakongPaymentStatus(
   // ── Sandbox Auto-Approve simulation bypass ──────────────────────────────────
   if (process.env.SANDBOX_MODE === 'true') {
     try {
-      const { PrismaClient } = await import('@prisma/client');
-      const prismaClient = new PrismaClient();
-      const order = await prismaClient.order.findFirst({
+      const order = await prisma.order.findFirst({
         where: {
           OR: [
             { paymentMd5: sanitizedMd5 },
@@ -580,11 +573,9 @@ export async function checkBakongPaymentStatus(
         const elapsedMs = Date.now() - new Date(order.createdAt).getTime();
         if (elapsedMs >= 15000) {
           console.log(`[Payment Verification] [Sandbox Auto-Approve] Order ${order.paymentTxnId} elapsed ${elapsedMs / 1000}s. Auto-confirming payment.`);
-          await prismaClient.$disconnect();
           return true;
         }
       }
-      await prismaClient.$disconnect();
     } catch (e: any) {
       console.error('[Payment Verification] Sandbox auto-approve check error:', e.message);
     }

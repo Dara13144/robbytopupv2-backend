@@ -451,21 +451,41 @@ async function seedDatabase() {
 }
 async function runDatabaseStartup() {
     console.log('[Startup] Initializing database...');
+    const schemaPath = path_1.default.join(__dirname, '..', '..', 'prisma', 'schema.prisma');
+    const backendRoot = path_1.default.join(__dirname, '..', '..');
+    const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
     try {
-        const schemaPath = path_1.default.join(__dirname, '..', '..', 'prisma', 'schema.prisma');
-        const isProd = process.env.NODE_ENV === 'production' || process.env.RENDER === 'true';
         if (isProd) {
             console.log('[Startup] Running prisma migrate deploy...');
-            (0, child_process_1.execSync)(`npx prisma migrate deploy --schema="${schemaPath}"`, {
-                cwd: path_1.default.join(__dirname, '..', '..'),
+            try {
+                (0, child_process_1.execSync)(`npx prisma migrate deploy --schema="${schemaPath}"`, {
+                    cwd: backendRoot,
+                    stdio: 'pipe',
+                    env: { ...process.env },
+                    timeout: 60_000,
+                });
+                console.log('[Startup] ✅ Database migrations applied successfully.');
+            }
+            catch (migrateErr) {
+                console.warn('[Startup] Migrate deploy warning, falling back to db push:', migrateErr.message);
+                (0, child_process_1.execSync)(`npx prisma db push --schema="${schemaPath}" --skip-generate --accept-data-loss`, {
+                    cwd: backendRoot,
+                    stdio: 'pipe',
+                    env: { ...process.env },
+                    timeout: 60_000,
+                });
+                console.log('[Startup] ✅ Database schema pushed successfully.');
+            }
+        }
+        else {
+            console.log('[Startup] Syncing SQLite schema (prisma db push)...');
+            (0, child_process_1.execSync)(`npx prisma db push --schema="${schemaPath}" --skip-generate --accept-data-loss`, {
+                cwd: backendRoot,
                 stdio: 'pipe',
                 env: { ...process.env },
                 timeout: 60_000,
             });
-            console.log('[Startup] ✅ Database migrations applied successfully.');
-        }
-        else {
-            console.log('[Startup] Syncing schema...');
+            console.log('[Startup] ✅ Local database schema synchronized.');
         }
     }
     catch (err) {

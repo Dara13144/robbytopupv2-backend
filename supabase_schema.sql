@@ -105,33 +105,70 @@ CREATE INDEX IF NOT EXISTS "idx_stock_packageId" ON "Stock"("packageId");
 CREATE INDEX IF NOT EXISTS "idx_stock_isUsed" ON "Stock"("isUsed");
 
 -- ====================================================================
--- 4. AUTOMATIC updatedAt TRIGGER FUNCTION
+-- 4. AUTOMATIC createdAt & updatedAt TIMESTAMP TRIGGERS & DEFAULTS
 -- ====================================================================
 
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+-- Ensure defaults exist even on pre-existing tables
+ALTER TABLE "User" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "User" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "Product" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Product" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "Package" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Package" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "Order" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Order" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "Stock" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE "Stock" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
+
+-- Fill any pre-existing NULL timestamps
+UPDATE "User" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+UPDATE "User" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+UPDATE "Product" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+UPDATE "Product" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+UPDATE "Package" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+UPDATE "Package" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+
+CREATE OR REPLACE FUNCTION set_timestamps()
 RETURNS TRIGGER AS $$
 BEGIN
-    NEW."updatedAt" = CURRENT_TIMESTAMP;
+    IF TG_OP = 'INSERT' THEN
+        IF NEW."createdAt" IS NULL THEN
+            NEW."createdAt" = CURRENT_TIMESTAMP;
+        END IF;
+        IF NEW."updatedAt" IS NULL THEN
+            NEW."updatedAt" = CURRENT_TIMESTAMP;
+        END IF;
+    ELSIF TG_OP = 'UPDATE' THEN
+        NEW."updatedAt" = CURRENT_TIMESTAMP;
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE 'plpgsql';
 
 DROP TRIGGER IF EXISTS set_user_updated_at ON "User";
-CREATE TRIGGER set_user_updated_at BEFORE UPDATE ON "User" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS set_user_timestamps ON "User";
+CREATE TRIGGER set_user_timestamps BEFORE INSERT OR UPDATE ON "User" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
 DROP TRIGGER IF EXISTS set_product_updated_at ON "Product";
-CREATE TRIGGER set_product_updated_at BEFORE UPDATE ON "Product" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS set_product_timestamps ON "Product";
+CREATE TRIGGER set_product_timestamps BEFORE INSERT OR UPDATE ON "Product" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
 DROP TRIGGER IF EXISTS set_package_updated_at ON "Package";
-CREATE TRIGGER set_package_updated_at BEFORE UPDATE ON "Package" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS set_package_timestamps ON "Package";
+CREATE TRIGGER set_package_timestamps BEFORE INSERT OR UPDATE ON "Package" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
 DROP TRIGGER IF EXISTS set_order_updated_at ON "Order";
-CREATE TRIGGER set_order_updated_at BEFORE UPDATE ON "Order" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS set_order_timestamps ON "Order";
+CREATE TRIGGER set_order_timestamps BEFORE INSERT OR UPDATE ON "Order" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
 DROP TRIGGER IF EXISTS set_stock_updated_at ON "Stock";
-CREATE TRIGGER set_stock_updated_at BEFORE UPDATE ON "Stock" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS set_stock_timestamps ON "Stock";
+CREATE TRIGGER set_stock_timestamps BEFORE INSERT OR UPDATE ON "Stock" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
--- ====================================================================
 -- ====================================================================
 -- 5. ROW LEVEL SECURITY (RLS) POLICIES & SCHEMA GRANTS
 -- ====================================================================
@@ -193,10 +230,10 @@ CREATE POLICY "Service role bypass Stock" ON "Stock" FOR ALL TO service_role USI
 -- Delete legacy administrator accounts
 DELETE FROM "User" WHERE "email" IN ('admin@topup.com', 'admin@gmail.com');
 
-INSERT INTO "User" ("id", "email", "password", "role")
+INSERT INTO "User" ("id", "email", "password", "role", "createdAt", "updatedAt")
 VALUES 
-  ('usr_admin_dara_01', 'mdara9695@gmail.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN')
-ON CONFLICT ("email") DO UPDATE SET "role" = 'ADMIN';
+  ('usr_admin_dara_01', 'mdara9695@gmail.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT ("email") DO UPDATE SET "role" = 'ADMIN', "updatedAt" = CURRENT_TIMESTAMP;
 
 -- ====================================================================
 -- 7. TOP GAMES CATALOG & DEFAULT PACKAGES SEED

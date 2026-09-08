@@ -56,9 +56,21 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       try {
         const decoded = require('jsonwebtoken').verify(token, JWT_SECRET) as { id: string; email: string };
         userId = decoded.id;
-        contactEmail = decoded.email;
+        contactEmail = decoded.email || contactEmail;
       } catch (err) {
-        // Ignore invalid token and create as guest
+        // Fallback: Check if token is a Supabase Auth or Google JWT token
+        try {
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            const decoded: any = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+            if (decoded) {
+              userId = decoded.sub || decoded.id || null;
+              contactEmail = decoded.email || contactEmail;
+            }
+          }
+        } catch {
+          // Ignore invalid token and create as guest
+        }
       }
     }
 

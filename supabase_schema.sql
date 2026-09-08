@@ -132,7 +132,8 @@ DROP TRIGGER IF EXISTS set_stock_updated_at ON "Stock";
 CREATE TRIGGER set_stock_updated_at BEFORE UPDATE ON "Stock" FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ====================================================================
--- 5. ROW LEVEL SECURITY (RLS) POLICIES
+-- ====================================================================
+-- 5. ROW LEVEL SECURITY (RLS) POLICIES & SCHEMA GRANTS
 -- ====================================================================
 
 -- Enable RLS on all tables
@@ -142,35 +143,47 @@ ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Order" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Stock" ENABLE ROW LEVEL SECURITY;
 
+-- Grants for standard Supabase API roles
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, service_role;
+GRANT SELECT ON "Product", "Package" TO anon, authenticated;
+GRANT SELECT, INSERT ON "Order" TO anon, authenticated;
+
 -- Products & Packages: Public read access
 DROP POLICY IF EXISTS "Public can view active products" ON "Product";
-CREATE POLICY "Public can view active products" ON "Product" FOR SELECT USING (true);
+CREATE POLICY "Public can view active products" ON "Product" FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "Public can view active packages" ON "Package";
-CREATE POLICY "Public can view active packages" ON "Package" FOR SELECT USING (true);
+CREATE POLICY "Public can view active packages" ON "Package" FOR SELECT TO anon, authenticated USING (true);
 
--- Orders: Public can create orders (guest checkout supported) and view by paymentTxnId
+-- Orders: Public can create orders (guest checkout supported) and view orders
 DROP POLICY IF EXISTS "Public can create orders" ON "Order";
-CREATE POLICY "Public can create orders" ON "Order" FOR INSERT WITH CHECK (true);
+CREATE POLICY "Public can create orders" ON "Order" FOR INSERT TO anon, authenticated WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Public can view orders" ON "Order";
-CREATE POLICY "Public can view orders" ON "Order" FOR SELECT USING (true);
+CREATE POLICY "Public can view orders" ON "Order" FOR SELECT TO anon, authenticated USING (true);
+
+-- Users: Authenticated users can view their own profile
+DROP POLICY IF EXISTS "Users can view own profile" ON "User";
+CREATE POLICY "Users can view own profile" ON "User" FOR SELECT TO authenticated USING (auth.uid()::text = id OR email = (auth.jwt() ->> 'email'));
 
 -- Backend Service Role has full unrestricted access to everything
 DROP POLICY IF EXISTS "Service role bypass User" ON "User";
-CREATE POLICY "Service role bypass User" ON "User" FOR ALL USING (true);
+CREATE POLICY "Service role bypass User" ON "User" FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Service role bypass Product" ON "Product";
-CREATE POLICY "Service role bypass Product" ON "Product" FOR ALL USING (true);
+CREATE POLICY "Service role bypass Product" ON "Product" FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Service role bypass Package" ON "Package";
-CREATE POLICY "Service role bypass Package" ON "Package" FOR ALL USING (true);
+CREATE POLICY "Service role bypass Package" ON "Package" FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Service role bypass Order" ON "Order";
-CREATE POLICY "Service role bypass Order" ON "Order" FOR ALL USING (true);
+CREATE POLICY "Service role bypass Order" ON "Order" FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Service role bypass Stock" ON "Stock";
-CREATE POLICY "Service role bypass Stock" ON "Stock" FOR ALL USING (true);
+CREATE POLICY "Service role bypass Stock" ON "Stock" FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ====================================================================
 -- 6. DEFAULT ADMINISTRATOR SEED
@@ -288,3 +301,61 @@ VALUES
   ('pkg_val_04', 'prod_val_007', '3650 Valorant Points (VP)', 3650, 34.50, 'NORMAL', 'Bonus 10%', true),
   ('pkg_val_05', 'prod_val_007', '5350 Valorant Points (VP)', 5350, 49.00, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
 ON CONFLICT ("id") DO NOTHING;
+
+-- 7.8 Mobile Legends Khmer Regional
+INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
+VALUES ('prod_mlbb_kh_008', 'MOBILE LEGENDS | KHMER', 'mobile-legends-khmer', '/images/games/mlbb.png', 'MOBILE_GAME', true)
+ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/mlbb.png', "isActive" = true;
+
+INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
+VALUES 
+  ('pkg_mlbb_kh_01', 'prod_mlbb_kh_008', 'Weekly Diamond Pass', 1, 1.99, 'BEST_SELLER', 'VIP Pass 🔥', true),
+  ('pkg_mlbb_kh_02', 'prod_mlbb_kh_008', '86 Diamonds (78 + 8 Bonus)', 86, 1.45, 'BEST_SELLER', 'Hot 🔥', true),
+  ('pkg_mlbb_kh_03', 'prod_mlbb_kh_008', '172 Diamonds (156 + 16 Bonus)', 172, 2.85, 'BEST_SELLER', 'ពេញនិយម', true),
+  ('pkg_mlbb_kh_04', 'prod_mlbb_kh_008', '257 Diamonds (234 + 23 Bonus)', 257, 4.25, 'NORMAL', 'ពេញនិយម', true),
+  ('pkg_mlbb_kh_05', 'prod_mlbb_kh_008', '706 Diamonds (625 + 81 Bonus)', 706, 11.50, 'NORMAL', 'Bonus 12%', true),
+  ('pkg_mlbb_kh_06', 'prod_mlbb_kh_008', '2195 Diamonds (1860 + 335 Bonus)', 2195, 34.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
+ON CONFLICT ("id") DO NOTHING;
+
+-- 7.9 Free Fire Khmer Regional
+INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
+VALUES ('prod_ff_kh_009', 'FREE FIRE | KHMER', 'free-fire-khmer', '/images/games/freefire.png', 'MOBILE_GAME', true)
+ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/freefire.png', "isActive" = true;
+
+INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
+VALUES 
+  ('pkg_ff_kh_01', 'prod_ff_kh_009', 'Weekly Membership', 1, 1.99, 'BEST_SELLER', 'Hot Deal 🔥', true),
+  ('pkg_ff_kh_02', 'prod_ff_kh_009', '100 Diamonds + 10 Bonus', 110, 0.99, 'BEST_SELLER', 'ពេញនិយម', true),
+  ('pkg_ff_kh_03', 'prod_ff_kh_009', '310 Diamonds + 31 Bonus', 341, 2.99, 'BEST_SELLER', 'Hot 🔥', true),
+  ('pkg_ff_kh_04', 'prod_ff_kh_009', '520 Diamonds + 52 Bonus', 572, 4.90, 'NORMAL', 'ពេញនិយម', true),
+  ('pkg_ff_kh_05', 'prod_ff_kh_009', '1060 Diamonds + 106 Bonus', 1166, 9.75, 'NORMAL', 'Bonus 10%', true),
+  ('pkg_ff_kh_06', 'prod_ff_kh_009', '2180 Diamonds + 218 Bonus', 2398, 19.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
+ON CONFLICT ("id") DO NOTHING;
+
+-- 7.10 Blood Strike
+INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
+VALUES ('prod_bs_010', 'Blood Strike', 'blood-strike', '/images/games/bloodstrike.png', 'MOBILE_GAME', true)
+ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/bloodstrike.png', "isActive" = true;
+
+INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
+VALUES 
+  ('pkg_bs_01', 'prod_bs_010', '100 Gold', 100, 0.99, 'BEST_SELLER', 'Hot 🔥', true),
+  ('pkg_bs_02', 'prod_bs_010', '500 Gold', 500, 4.99, 'BEST_SELLER', 'ពេញនិយម', true),
+  ('pkg_bs_03', 'prod_bs_010', '1000 Gold', 1000, 9.99, 'NORMAL', 'ពេញនិយម', true),
+  ('pkg_bs_04', 'prod_bs_010', '2500 Gold', 2500, 24.99, 'NORMAL', 'Bonus 10%', true),
+  ('pkg_bs_05', 'prod_bs_010', '5000 Gold', 5000, 49.99, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
+ON CONFLICT ("id") DO NOTHING;
+
+-- 7.11 Magic Chess: Go Go
+INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
+VALUES ('prod_mc_011', 'Magic Chess: Go Go', 'magic-chess-gogo', '/images/games/magicchess.png', 'MOBILE_GAME', true)
+ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/magicchess.png', "isActive" = true;
+
+INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
+VALUES 
+  ('pkg_mc_01', 'prod_mc_011', '50 Diamonds', 50, 0.85, 'BEST_SELLER', 'Hot 🔥', true),
+  ('pkg_mc_02', 'prod_mc_011', '100 Diamonds', 100, 1.65, 'BEST_SELLER', 'ពេញនិយម', true),
+  ('pkg_mc_03', 'prod_mc_011', '500 Diamonds', 500, 7.90, 'NORMAL', 'Bonus 10%', true),
+  ('pkg_mc_04', 'prod_mc_011', '1000 Diamonds', 1000, 15.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
+ON CONFLICT ("id") DO NOTHING;
+

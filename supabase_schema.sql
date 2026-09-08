@@ -1,7 +1,7 @@
 -- ====================================================================
 -- SUPABASE FULL DATABASE SYSTEM SCHEMA FOR DARA-TOPUP
 -- Compatible with PostgreSQL 14+, Prisma ORM, and Supabase Studio
--- Project Reference: frumrhogdtuawshkdqxr
+-- Project Reference: buielweczgmkgpknmcza
 -- ====================================================================
 
 -- 1. Enable Required Extensions

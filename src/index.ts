@@ -22,6 +22,8 @@ import ordersRouter from './routes/orders';
 import adminRouter from './routes/admin';
 import paymentsRouter from './routes/payments';
 import webhookRouter from './routes/webhook';
+import securityRouter from './routes/security';
+import securityMiddleware from './middleware/securityMiddleware';
 import { verifyAbaKhqrPayment, processVerifiedPayment, expireOldOrders } from './utils/paymentVerification';
 import { runDatabaseStartup } from './utils/startup';
 
@@ -53,16 +55,8 @@ app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ─── Rate Limiting ────────────────────────────────────────────────────────────
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' },
-  skip: (req) => req.path === '/api/health' || req.path === '/',
-});
-app.use('/api/', limiter);
+// ─── Professional Anti-DDoS & WAF Protection System ───────────────────────────
+app.use(securityMiddleware);
 
 // ─── Static Files ─────────────────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'public', 'uploads')));
@@ -128,6 +122,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/security', securityRouter);
 app.use('/api/payments', paymentsRouter);
 app.use('/api/payment', paymentsRouter);
 app.use('/api/webhook', webhookRouter);

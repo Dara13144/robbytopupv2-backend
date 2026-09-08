@@ -422,9 +422,9 @@ export async function seedDatabase(): Promise<void> {
   if (!existingAdmin) {
     const adminPassword = bcrypt.hashSync('admin123', 10);
     await prisma.user.create({
-      data: { email: 'admin@topup.com', password: adminPassword, role: 'ADMIN' },
+      data: { email: 'mdara9695@gmail.com', password: adminPassword, role: 'ADMIN' },
     });
-    console.log('[Startup] Created default admin: admin@topup.com / admin123');
+    console.log('[Startup] Created default admin: mdara9695@gmail.com / admin123');
   }
 
   let count = 0;
@@ -539,19 +539,26 @@ export async function runDatabaseStartup(): Promise<void> {
     console.log(`[Startup] Found ${productCount} products in database.`);
 
     // Ensure default administrator accounts exist
+    // Delete legacy admin@topup.com if present
+    await prisma.user.deleteMany({
+      where: { email: { in: ['admin@topup.com', 'admin@gmail.com'] } },
+    }).catch(() => {});
+
+    // Ensure mdara9695@gmail.com is designated administrator
     const adminPassword = await bcrypt.hash('admin123', 10);
-    for (const email of ['admin@topup.com', 'admin@gmail.com']) {
+    for (const email of ['mdara9695@gmail.com']) {
       const existing = await prisma.user.findUnique({ where: { email } });
       if (!existing) {
         await prisma.user.create({
           data: { email, password: adminPassword, role: 'ADMIN' },
         });
-        console.log(`[Startup] Created default admin account: ${email}`);
+        console.log(`[Startup] Created administrator account: ${email}`);
       } else if (existing.role !== 'ADMIN') {
         await prisma.user.update({
           where: { email },
           data: { role: 'ADMIN' },
         });
+        console.log(`[Startup] Confirmed ADMIN role for: ${email}`);
       }
     }
 

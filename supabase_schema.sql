@@ -177,10 +177,12 @@ CREATE POLICY "Service role bypass Stock" ON "Stock" FOR ALL USING (true);
 -- Passwords are encrypted with bcrypt for 'admin123'
 -- ====================================================================
 
+-- Delete legacy administrator accounts
+DELETE FROM "User" WHERE "email" IN ('admin@topup.com', 'admin@gmail.com');
+
 INSERT INTO "User" ("id", "email", "password", "role")
 VALUES 
-  ('usr_admin_default_01', 'admin@topup.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN'),
-  ('usr_admin_default_02', 'admin@gmail.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN')
+  ('usr_admin_dara_01', 'mdara9695@gmail.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN')
 ON CONFLICT ("email") DO UPDATE SET "role" = 'ADMIN';
 
 -- ====================================================================

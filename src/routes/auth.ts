@@ -154,15 +154,26 @@ router.post('/google', async (req, res) => {
     let email = (rawEmail || '').trim().toLowerCase();
     let name = rawName;
 
-    // Verify credential via Google tokeninfo or JWT payload decode
+    // Verify credential via Google tokeninfo (id_token, access_token) or JWT payload decode
     if (credential) {
       try {
-        const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+        let googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+        if (!googleRes.ok) {
+          // Check if credential is an access token
+          googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${credential}`);
+        }
+        if (!googleRes.ok) {
+          // Check Google userinfo endpoint with Bearer authorization
+          googleRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${credential}` },
+          });
+        }
+
         if (googleRes.ok) {
           const payload: any = await googleRes.json();
           if (payload.email) {
             email = payload.email.trim().toLowerCase();
-            name = payload.name || name;
+            name = payload.name || payload.given_name || name;
           }
         } else {
           // Fallback: decode base64 JWT payload directly

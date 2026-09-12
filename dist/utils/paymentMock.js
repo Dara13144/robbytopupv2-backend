@@ -73,6 +73,52 @@ function calculateCRC16(data) {
 async function generateBakongKHQR(tranId, amount, itemName) {
     const amountStr = amount.toFixed(2);
     console.log(`[Bakong KHQR Generator] Starting generation for Txn ID: "${tranId}", Amount: $${amountStr}, Item Name: "${itemName}"`);
+    // ── 000. VNGZZ2GAME Live ABA KHQR Generator (https://www.vngzz2game.site) ─
+    const vngzzKey = process.env.VNGZZ2GAME_API_KEY || process.env.AUTO_TOPUP_API_KEY || 'pwArFcCneE0vcBDIGu6ZeIKHUZ3HxeQZ';
+    if (vngzzKey) {
+        try {
+            console.log(`[Bakong KHQR Generator] [VNGZZ2GAME] Requesting live ABA KHQR: $${amountStr}, Ref: ${tranId}`);
+            const res = await fetch('https://www.vngzz2game.site/api/v1/generate_qr', {
+                method: 'POST',
+                headers: {
+                    'X-API-Key': vngzzKey,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    amount: amountStr,
+                    currency: 'USD',
+                    idempotency_key: tranId,
+                    metadata: { order_id: tranId, item: itemName }
+                }),
+                signal: AbortSignal.timeout(6000),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                console.log('[Bakong KHQR Generator] [VNGZZ2GAME] Response:', JSON.stringify(data));
+                const qrString = data.data?.qr_string || data.qr_string;
+                if (qrString) {
+                    const md5 = crypto_1.default.createHash('md5').update(qrString).digest('hex').toLowerCase();
+                    const txn = data.data?.transaction_id || tranId;
+                    return {
+                        qrCode: qrString,
+                        md5,
+                        txnId: tranId,
+                        gatewayRef: txn,
+                        payUrl: data.data?.pay_url,
+                        deepLink: data.data?.deep_link,
+                        qrImageUrl: data.data?.qr_image_url,
+                    };
+                }
+            }
+            else {
+                const errText = await res.text();
+                console.warn(`[Bakong KHQR Generator] [VNGZZ2GAME] Error ${res.status}:`, errText);
+            }
+        }
+        catch (vngzzErr) {
+            console.error('[Bakong KHQR Generator] [VNGZZ2GAME] Failed:', vngzzErr.message || vngzzErr);
+        }
+    }
     // ── 00. CutLuy Live Auto Payment Gateway (https://cutluy.com/) ───────────
     const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_7TNbEHrfs2CDCc5ze1atGCIM6ISYZQwD';
     const cutluyApiUrl = process.env.CUTLUY_API_URL || 'https://cutluy.com/v1/payments';
@@ -198,7 +244,7 @@ async function generateBakongKHQR(tranId, amount, itemName) {
     const isRelay = token.startsWith('rbkn') || !!process.env.BAKONG_RELAY_TOKEN;
     const relayToken = isRelay ? token : '';
     const accountId = (process.env.BAKONG_ACCOUNT_ID || 'dara_mao1@bkrt').trim().replace(/['"]/g, '');
-    const merchantName = (process.env.BAKONG_MERCHANT_NAME || 'DaraShop').trim().replace(/['"]/g, '');
+    const merchantName = (process.env.BAKONG_MERCHANT_NAME || 'NA-DY TOPUP').trim().replace(/['"]/g, '');
     const merchantCity = (process.env.BAKONG_MERCHANT_CITY || 'Phnom Penh').trim().replace(/['"]/g, '');
     if (relayToken) {
         try {
@@ -346,6 +392,45 @@ async function checkBakongPaymentStatus(md5, khpayTxnId, ctx) {
     if (!sanitizedMd5) {
         console.warn('[Payment Verification] ❌ Verification aborted: MD5 is empty.');
         return false;
+    }
+    // ── 0000. VNGZZ2GAME Live Payment Status Check (https://www.vngzz2game.site) ──
+    const vngzzKey = process.env.VNGZZ2GAME_API_KEY || process.env.AUTO_TOPUP_API_KEY || 'pwArFcCneE0vcBDIGu6ZeIKHUZ3HxeQZ';
+    if (vngzzKey) {
+        try {
+            const order = await prisma_1.default.order.findFirst({
+                where: {
+                    OR: [
+                        { paymentMd5: sanitizedMd5 },
+                        { paymentMd5: sanitizedMd5.toUpperCase() },
+                        { paymentTxnId: khpayTxnId }
+                    ]
+                }
+            });
+            const targetTxn = order?.gatewayRef || order?.paymentTxnId || khpayTxnId;
+            if (targetTxn && (targetTxn.startsWith('TXN-') || targetTxn.startsWith('TOPUP-'))) {
+                const checkUrl = 'https://www.vngzz2game.site/api/v1/check_transaction';
+                const res = await fetch(checkUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': vngzzKey,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ transaction_id: targetTxn }),
+                    signal: AbortSignal.timeout(5000),
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    console.log('[Payment Verification] [VNGZZ2GAME] check_transaction response:', JSON.stringify(data));
+                    if (data.data?.is_paid === true || data.data?.state === 'PAID' || data.data?.state === 'APPROVED' || data.data?.state === 'SUCCESS') {
+                        console.log(`[Payment Verification] ✅ Confirmed PAID via VNGZZ2GAME for ${targetTxn}`);
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (vngzzErr) {
+            console.error('[Payment Verification] [VNGZZ2GAME] Check error:', vngzzErr.message || vngzzErr);
+        }
     }
     // ── 000. CutLuy Live Payment Status Check ─────────────────────────────────
     const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_7TNbEHrfs2CDCc5ze1atGCIM6ISYZQwD';

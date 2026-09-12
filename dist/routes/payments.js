@@ -28,12 +28,17 @@ router.post('/create', async (req, res) => {
         if (!pkg) {
             return res.status(404).json({ error: 'Package not found' });
         }
-        // Validate Player ID and retrieve nickname
-        const lookup = await (0, gameProviderMock_1.lookupPlayerNickname)(pkg.product.slug, playerId, playerZoneId);
-        if (!lookup.success) {
-            return res.status(400).json({ error: `Player ID validation failed: ${lookup.error}` });
+        // Validate Player ID and retrieve nickname (non-blocking)
+        let nickname = 'Player';
+        try {
+            const lookup = await (0, gameProviderMock_1.lookupPlayerNickname)(pkg.product.slug, playerId, playerZoneId);
+            if (lookup && lookup.nickname) {
+                nickname = lookup.nickname;
+            }
         }
-        const nickname = lookup.nickname || 'Unknown Player';
+        catch {
+            nickname = 'Player';
+        }
         // Generate unique payment transaction ID
         const timeCode = Date.now().toString().slice(-6);
         const randCode = Math.floor(1000 + Math.random() * 9000);
@@ -186,6 +191,9 @@ router.get('/status/:transactionId', async (req, res) => {
                     order = updatedOrder;
             }
         }
+        const deepLink = order.paymentQrCode ? `abamobilebank://ababank.com?type=payway&qrcode=${encodeURIComponent(order.paymentQrCode)}` : null;
+        const payUrl = order.gatewayRef && order.gatewayRef.startsWith('TXN-') ? `https://www.vngzz2game.site/pay/${order.gatewayRef}` : null;
+        const qrImageUrl = order.paymentQrCode ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=4&data=${encodeURIComponent(order.paymentQrCode)}` : null;
         return res.status(200).json({
             id: order.id,
             transactionId: order.paymentTxnId,
@@ -200,6 +208,9 @@ router.get('/status/:transactionId', async (req, res) => {
             paymentMethod: order.paymentMethod,
             stockDeliveredCode: order.stockDeliveredCode,
             paymentQrCode: order.paymentQrCode,
+            deepLink,
+            payUrl,
+            qrImageUrl,
             createdAt: order.createdAt,
         });
     }

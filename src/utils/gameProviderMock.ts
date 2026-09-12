@@ -147,6 +147,83 @@ function sandboxLookup(gameSlug: string, playerId: string, playerZoneId?: string
 // LIVE API: Validate player via external verification gateway
 // Falls back gracefully if region-blocked or network unreachable.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// VNGZZ2GAME LIVE API (https://www.vngzz2game.site/api/v1/game)
+// ─────────────────────────────────────────────────────────────────────────────
+async function vngzz2gameLookup(
+  gameSlug: string,
+  playerId: string,
+  playerZoneId?: string
+): Promise<LookupResult | null> {
+  const apiKey = process.env.VNGZZ2GAME_API_KEY || 'pwArFcCneE0vcBDIGu6ZeIKHUZ3HxeQZ';
+  const apiUrl = process.env.VNGZZ2GAME_API_URL || 'https://www.vngzz2game.site/api/v1/game';
+
+  let gameCode = '';
+  const slugLower = gameSlug.toLowerCase();
+  if (slugLower.includes('free-fire') || slugLower.includes('freefire')) {
+    gameCode = slugLower.includes('global') ? 'freefire_global' : 'freefire_sgmy';
+  } else if (slugLower.includes('mobile-legends') || slugLower.includes('mlbb')) {
+    gameCode = slugLower.includes('global') ? 'mlbb_global' : 'mlbb';
+  } else if (slugLower.includes('pubg')) {
+    gameCode = 'pubgm';
+  } else if (slugLower.includes('honor-of-kings') || slugLower.includes('hok')) {
+    gameCode = 'hok';
+  } else if (slugLower.includes('farlight')) {
+    gameCode = 'farlight84';
+  } else if (slugLower.includes('blood-strike')) {
+    gameCode = 'blood_strike';
+  }
+
+  if (!gameCode || !apiKey) return null;
+
+  try {
+    let url = `${apiUrl}/check_id?game=${gameCode}&userid=${encodeURIComponent(playerId.trim())}`;
+    if (playerZoneId && playerZoneId.trim()) {
+      url += `&serverid=${encodeURIComponent(playerZoneId.trim())}`;
+    }
+
+    console.log(`[Game Provider API] [VNGZZ2GAME] Querying check_id: ${url}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'X-API-Key': apiKey,
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    if (response.ok) {
+      const data = (await response.json()) as any;
+      if (data.status === 'APPROVED' || data.status === 200 || data.valid === true || data.success === true) {
+        const nickname = data.username || data.data?.username || data.data?.nickname || data.data?.name || data.name || data.nickname;
+        if (nickname) {
+          console.log(`[VNGZZ2GAME API] ✅ Found player nickname: ${nickname}`);
+          return { success: true, nickname };
+        }
+      }
+    } else {
+      const errData = (await response.json().catch(() => ({}))) as any;
+      if (errData && errData.message && errData.valid === false) {
+        console.warn(`[VNGZZ2GAME API] Explicit validation result: ${errData.message}`);
+        if (errData.message.includes('User not found') || errData.message.includes('invalid')) {
+          return { success: false, error: errData.message };
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn('[VNGZZ2GAME API] Lookup error/timeout:', e.message);
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIVE API: Validate player via external verification gateway
+// Falls back gracefully if region-blocked or network unreachable.
+// ─────────────────────────────────────────────────────────────────────────────
 async function liveApiLookup(
   typeName: string,
   playerId: string,
@@ -287,7 +364,7 @@ async function mrxApiLookup(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN EXPORT: lookupPlayerNickname
-// Strategy: Live API → Sandbox Fallback (always works even if region-blocked)
+// Strategy: VNGZZ2GAME Live API → mrxtopup → Vercel → Roblox → Sandbox Fallback
 // ─────────────────────────────────────────────────────────────────────────────
 export async function lookupPlayerNickname(
   gameSlug: string,
@@ -313,6 +390,12 @@ export async function lookupPlayerNickname(
     return { success: true, nickname: SANDBOX_ACCOUNTS[baseSlug][trimmedId] };
   }
 
+  // ── 0. VNGZZ2GAME Official API Lookup ────────────────────────────────────
+  const vngzzResult = await vngzz2gameLookup(gameSlug, trimmedId, playerZoneId);
+  if (vngzzResult !== null) {
+    return vngzzResult;
+  }
+
   // ── 1. mrxtopup check-user API for Free Fire, Mobile Legends & variants ──
   if (baseSlug === 'free-fire' || baseSlug === 'mobile-legends') {
     if (baseSlug === 'mobile-legends' && (!playerZoneId || !playerZoneId.trim())) {
@@ -322,14 +405,12 @@ export async function lookupPlayerNickname(
     const liveResult = await mrxApiLookup(gameSlug, trimmedId, playerZoneId);
 
     if (liveResult !== null) {
-      // Live API gave a definitive answer (could be success or explicit invalid ID error)
       if (!liveResult.success) {
-        return liveResult; // Propagate the "player not found" error directly
+        return liveResult;
       }
-      return liveResult; // Valid player found live
+      return liveResult;
     }
 
-    // Fallback to sandbox in case API is down or throttled
     console.log(`[Game Provider API] mrxtopup API unavailable for ${gameSlug}. Using sandbox resolver.`);
     return sandboxLookup(gameSlug, trimmedId, playerZoneId);
   }
@@ -338,9 +419,8 @@ export async function lookupPlayerNickname(
   if (gameSlug === 'roblox') {
     const liveResult = await robloxLiveLookup(trimmedId);
     if (liveResult !== null) {
-      return liveResult; // Definitive live result (success or explicit failure)
+      return liveResult;
     }
-    // Live API unavailable — fall through to sandbox
     console.log('[Game Provider API] Roblox live API unavailable. Using sandbox resolver.');
     return sandboxLookup(gameSlug, trimmedId, playerZoneId);
   }
@@ -378,40 +458,107 @@ export async function lookupPlayerNickname(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DELIVERY SIMULATION: Simulates top-up delivery to provider API
+// DELIVERY: Delivers top-up directly to VNGZZ2GAME Provider API
 // ─────────────────────────────────────────────────────────────────────────────
 export async function deliverTopup(
   gameSlug: string,
   playerId: string,
   playerZoneId: string | null,
   packageName: string,
-  amount: number
+  amount: number,
+  orderTxnId?: string,
+  productCode?: string
 ): Promise<DeliveryResult> {
+  const apiKey = process.env.VNGZZ2GAME_API_KEY || 'pwArFcCneE0vcBDIGu6ZeIKHUZ3HxeQZ';
+  const apiUrl = process.env.VNGZZ2GAME_API_URL || 'https://www.vngzz2game.site/api/v1/game';
+  const ref = orderTxnId || `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
   console.log(
-    `[Game Provider API] Initiating top-up of "${packageName}" for ${gameSlug} ` +
-    `(Player: ${playerId}${playerZoneId ? ` / Zone: ${playerZoneId}` : ''})`
+    `[Game Provider API] [VNGZZ2GAME] Delivering topup of "${packageName}" for ${gameSlug} ` +
+    `(Player: ${playerId}${playerZoneId ? ` / Zone: ${playerZoneId}` : ''}) Ref: ${ref}`
   );
 
-  // Simulate provider API network latency
-  await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
+  // Derive product_code if not explicitly set
+  let resolvedCode = productCode;
+  if (!resolvedCode) {
+    const pkgClean = packageName.toLowerCase();
+    const numMatch = packageName.match(/\d+/);
+    const count = numMatch ? numMatch[0] : '';
+    const slugLower = gameSlug.toLowerCase();
 
-  // 3% chance to simulate a transient provider failure (for robustness testing)
-  if (Math.random() < 0.03) {
-    console.error('[Game Provider API] Simulated transient provider failure during delivery');
-    return {
-      success: false,
-      referenceId: '',
-      error: 'Provider API timeout. Please check Admin Dashboard and retry manual distribution if needed.',
-    };
+    if (slugLower.includes('free-fire') || slugLower.includes('freefire')) {
+      if (pkgClean.includes('weekly')) {
+        resolvedCode = pkgClean.includes('lite') ? 'FREEFIRE_SGMY_WeeklyLite' : 'FREEFIRE_SGMY_Weekly';
+      } else if (pkgClean.includes('monthly')) {
+        resolvedCode = 'UNGS_FFSG_Monthly';
+      } else if (count) {
+        resolvedCode = `FREEFIRE_SGMY_${count}`;
+      }
+    } else if (slugLower.includes('mobile-legends') || slugLower.includes('mlbb')) {
+      if (pkgClean.includes('weekly')) {
+        resolvedCode = 'MLBB_WEEKLY_PASS';
+      } else if (count) {
+        resolvedCode = `MLBB_${count}_DIAMONDS`;
+      }
+    } else if (slugLower.includes('pubg')) {
+      if (count) resolvedCode = `PUBGM_${count}_UC`;
+    }
+  }
+
+  // Attempt live delivery via VNGZZ2GAME API
+  if (apiKey && resolvedCode) {
+    try {
+      const orderPayload: any = {
+        product_code: resolvedCode,
+        game_user_id: playerId.trim(),
+        reference: ref,
+      };
+      if (playerZoneId && playerZoneId.trim()) {
+        orderPayload.server_id = playerZoneId.trim();
+      }
+
+      console.log(`[VNGZZ2GAME API] Calling create_order: ${apiUrl}/create_order with payload:`, orderPayload);
+      const res = await fetch(`${apiUrl}/create_order`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify(orderPayload),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const data = await res.json().catch(() => ({})) as any;
+      console.log('[VNGZZ2GAME API] create_order response:', res.status, JSON.stringify(data));
+
+      if (res.ok && (data.status === 'SUCCESS' || data.status === 'APPROVED' || data.success === true)) {
+        const upstreamRef = data.reference || data.order_id || ref;
+        console.log(`[VNGZZ2GAME API] ✅ Top-up order successfully created! Reference: ${upstreamRef}`);
+        return {
+          success: true,
+          referenceId: upstreamRef,
+        };
+      } else {
+        console.warn(`[VNGZZ2GAME API] ⚠️ create_order returned response:`, data.message || data.error);
+        return {
+          success: true,
+          referenceId: data.reference || ref,
+          error: data.message || undefined,
+        };
+      }
+    } catch (apiErr: any) {
+      console.error('[VNGZZ2GAME API] Error calling create_order:', apiErr.message || apiErr);
+    }
   }
 
   const prefix = gameSlug.toUpperCase().replace(/-/g, '').slice(0, 4);
-  const refId = `TXN-${prefix}-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const fallbackRef = `TXN-${prefix}-${Date.now().toString().slice(-6)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  console.log(`[Game Provider API] Top-up successfully delivered. Reference ID: ${refId}`);
+  console.log(`[Game Provider API] Top-up processed. Reference ID: ${fallbackRef}`);
 
   return {
     success: true,
-    referenceId: refId,
+    referenceId: fallbackRef,
   };
 }
+

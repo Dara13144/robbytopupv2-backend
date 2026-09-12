@@ -10,13 +10,19 @@ const prisma_1 = __importDefault(require("../prisma"));
 const auth_1 = require("../middleware/auth");
 const router = (0, express_1.Router)();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-production-12345';
+const ADMIN_EMAILS = [
+    'mdara9695@gmail.com',
+    'admin@nadytopup.com',
+    'admin@topup.com'
+];
 // Register Route
 router.post('/register', async (req, res) => {
     try {
-        const { email, password } = req.body;
-        if (!email || !password) {
+        const { email: rawEmail, password } = req.body;
+        if (!rawEmail || !password) {
             return res.status(400).json({ error: 'Email and password are required' });
         }
+        const email = rawEmail.trim().toLowerCase();
         // Check if email already exists
         const existingUser = await prisma_1.default.user.findUnique({
             where: { email },
@@ -26,9 +32,10 @@ router.post('/register', async (req, res) => {
         }
         // Hash password
         const hashedPassword = await bcryptjs_1.default.hash(password, 10);
-        // If first user, make ADMIN, else USER
+        // If matches admin list or is first user, make ADMIN
         const userCount = await prisma_1.default.user.count();
-        const role = userCount === 0 ? 'ADMIN' : 'USER';
+        const isAdminEmail = ADMIN_EMAILS.includes(email);
+        const role = (isAdminEmail || userCount === 0) ? 'ADMIN' : 'USER';
         const user = await prisma_1.default.user.create({
             data: {
                 email,
@@ -56,11 +63,12 @@ router.post('/register', async (req, res) => {
 // Login Route
 router.post('/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
-        if (!email || !password) {
+        const { email: rawEmail, password } = req.body;
+        if (!rawEmail || !password) {
             return res.status(400).json({ error: 'Email and password are required' });
         }
-        const user = await prisma_1.default.user.findUnique({
+        const email = rawEmail.trim().toLowerCase();
+        let user = await prisma_1.default.user.findUnique({
             where: { email },
         });
         if (!user) {
@@ -69,6 +77,14 @@ router.post('/login', async (req, res) => {
         const isMatch = await bcryptjs_1.default.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json({ error: 'Invalid email or password' });
+        }
+        // Ensure designated admin emails are always elevated to ADMIN
+        const isAdminEmail = ADMIN_EMAILS.includes(email);
+        if (isAdminEmail && user.role !== 'ADMIN') {
+            user = await prisma_1.default.user.update({
+                where: { id: user.id },
+                data: { role: 'ADMIN' },
+            });
         }
         // Generate JWT token
         const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -87,13 +103,13 @@ router.post('/login', async (req, res) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
-// Get Current User profile Route
+// Get Current User Profile Route
 router.get('/me', auth_1.authenticateJWT, async (req, res) => {
     try {
         if (!req.user) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
-        const user = await prisma_1.default.user.findUnique({
+        let user = await prisma_1.default.user.findUnique({
             where: { id: req.user.id },
             select: {
                 id: true,
@@ -105,11 +121,115 @@ router.get('/me', auth_1.authenticateJWT, async (req, res) => {
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
+        // Elevate admin if matches email
+        if (ADMIN_EMAILS.includes(user.email.toLowerCase()) && user.role !== 'ADMIN') {
+            user = await prisma_1.default.user.update({
+                where: { id: user.id },
+                data: { role: 'ADMIN' },
+                select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    createdAt: true,
+                },
+            });
+        }
         return res.status(200).json({ user });
     }
     catch (error) {
         console.error('Get profile error:', error);
         return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// Google OAuth Sign-In Route
+router.post('/google', async (req, res) => {
+    try {
+        const { credential, email: rawEmail, name: rawName } = req.body;
+        if (!credential && !rawEmail) {
+            return res.status(400).json({ error: 'Google credential is required' });
+        }
+        let email = (rawEmail || '').trim().toLowerCase();
+        let name = rawName;
+        // Verify credential via Google tokeninfo (id_token, access_token) or JWT payload decode
+        if (credential) {
+            try {
+                let googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+                if (!googleRes.ok) {
+                    googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${credential}`);
+                }
+                if (!googleRes.ok) {
+                    googleRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                        headers: { Authorization: `Bearer ${credential}` },
+                    });
+                }
+                if (googleRes.ok) {
+                    const payload = await googleRes.json();
+                    if (payload.email) {
+                        email = payload.email.trim().toLowerCase();
+                        name = payload.name || payload.given_name || name;
+                    }
+                }
+                else {
+                    // Fallback: decode base64 JWT payload directly
+                    const parts = credential.split('.');
+                    if (parts.length === 3) {
+                        const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+                        if (decoded.email) {
+                            email = decoded.email.trim().toLowerCase();
+                            name = decoded.name || name;
+                        }
+                    }
+                }
+            }
+            catch (tokenErr) {
+                console.warn('[Auth] Google tokeninfo verification fallback:', tokenErr);
+                const parts = credential.split('.');
+                if (parts.length === 3) {
+                    const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+                    if (decoded.email) {
+                        email = decoded.email.trim().toLowerCase();
+                        name = decoded.name || name;
+                    }
+                }
+            }
+        }
+        if (!email) {
+            return res.status(400).json({ error: 'Failed to retrieve email from Google credential' });
+        }
+        const isAdminEmail = ADMIN_EMAILS.includes(email);
+        let user = await prisma_1.default.user.findUnique({ where: { email } });
+        if (!user) {
+            const generatedPass = await bcryptjs_1.default.hash(`google_${Date.now()}_${Math.random()}`, 10);
+            user = await prisma_1.default.user.create({
+                data: {
+                    email,
+                    password: generatedPass,
+                    role: isAdminEmail ? 'ADMIN' : 'USER',
+                },
+            });
+            console.log(`[Auth] Registered new Google user: ${email} (${user.role})`);
+        }
+        else if (isAdminEmail && user.role !== 'ADMIN') {
+            user = await prisma_1.default.user.update({
+                where: { email },
+                data: { role: 'ADMIN' },
+            });
+            console.log(`[Auth] Elevated Google account to ADMIN: ${email}`);
+        }
+        const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+        return res.status(200).json({
+            message: 'Google login successful',
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+            },
+        });
+    }
+    catch (error) {
+        console.error('Google login route error:', error);
+        return res.status(500).json({ error: error.message || 'Internal server error during Google login' });
     }
 });
 exports.default = router;

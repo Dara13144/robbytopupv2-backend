@@ -386,7 +386,6 @@ const ALL_GAMES = [
     { name: 'Subway Surfers', slug: 'subway-surfers', category: 'MOBILE_GAME', currency: 'Keys & Coins' },
     { name: 'Temple Run 2', slug: 'temple-run-2', category: 'MOBILE_GAME', currency: 'Gems' },
     { name: 'Angry Birds 2', slug: 'angry-birds-2', category: 'MOBILE_GAME', currency: 'Gems' },
-    { name: '2048', slug: '2048-game', category: 'MOBILE_GAME', currency: 'Ad-Free Pass' },
     { name: 'Fruit Ninja', slug: 'fruit-ninja', category: 'MOBILE_GAME', currency: 'Starfruit' },
     { name: 'Jetpack Joyride', slug: 'jetpack-joyride', category: 'MOBILE_GAME', currency: 'Coins' },
     { name: 'Hill Climb Racing', slug: 'hill-climb-racing', category: 'MOBILE_GAME', currency: 'Gems' },
@@ -408,9 +407,9 @@ async function seedDatabase() {
     if (!existingAdmin) {
         const adminPassword = bcryptjs_1.default.hashSync('admin123', 10);
         await prisma_1.default.user.create({
-            data: { email: 'admin@topup.com', password: adminPassword, role: 'ADMIN' },
+            data: { email: 'mdara9695@gmail.com', password: adminPassword, role: 'ADMIN' },
         });
-        console.log('[Startup] Created default admin: admin@topup.com / admin123');
+        console.log('[Startup] Created default admin: mdara9695@gmail.com / admin123');
     }
     let count = 0;
     for (const game of ALL_GAMES) {
@@ -522,20 +521,26 @@ async function runDatabaseStartup() {
         const productCount = await prisma_1.default.product.count();
         console.log(`[Startup] Found ${productCount} products in database.`);
         // Ensure default administrator accounts exist
+        // Delete legacy admin@topup.com if present
+        await prisma_1.default.user.deleteMany({
+            where: { email: { in: ['admin@topup.com', 'admin@gmail.com'] } },
+        }).catch(() => { });
+        // Ensure mdara9695@gmail.com is designated administrator
         const adminPassword = await bcryptjs_1.default.hash('admin123', 10);
-        for (const email of ['admin@topup.com', 'admin@gmail.com']) {
+        for (const email of ['mdara9695@gmail.com']) {
             const existing = await prisma_1.default.user.findUnique({ where: { email } });
             if (!existing) {
                 await prisma_1.default.user.create({
                     data: { email, password: adminPassword, role: 'ADMIN' },
                 });
-                console.log(`[Startup] Created default admin account: ${email}`);
+                console.log(`[Startup] Created administrator account: ${email}`);
             }
             else if (existing.role !== 'ADMIN') {
                 await prisma_1.default.user.update({
                     where: { email },
                     data: { role: 'ADMIN' },
                 });
+                console.log(`[Startup] Confirmed ADMIN role for: ${email}`);
             }
         }
         if (productCount < 20) {

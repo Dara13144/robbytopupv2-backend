@@ -39,18 +39,21 @@ router.get('/lookup/:gameSlug', async (req, res) => {
         const playerId = req.query.playerId || '';
         const playerZoneId = req.query.playerZoneId || '';
         if (!playerId.trim()) {
-            return res.status(400).json({ error: 'Player ID is required' });
+            return res.status(400).json({ success: false, error: 'Player ID is required' });
         }
         const result = await (0, gameProviderMock_1.lookupPlayerNickname)(gameSlug, playerId, playerZoneId);
-        if (!result.success) {
-            return res.status(200).json({ nickname: `បានផ្ទៀងផ្ទាត់ (${playerId.trim()})` });
+        if (result && result.success && result.nickname) {
+            return res.status(200).json({ success: true, nickname: result.nickname });
         }
-        return res.status(200).json({ nickname: result.nickname || `បានផ្ទៀងផ្ទាត់ (${playerId.trim()})` });
+        return res.status(200).json({
+            success: false,
+            nickname: null,
+            error: result?.error || 'Player not found'
+        });
     }
     catch (error) {
         console.error('Nickname lookup error:', error);
-        const fallbackId = req.query.playerId || 'Player';
-        return res.status(200).json({ nickname: `បានផ្ទៀងផ្ទាត់ (${fallbackId.trim()})` });
+        return res.status(500).json({ success: false, error: 'Internal lookup error' });
     }
 });
 // 3. Get specific product by slug (Public)
@@ -137,7 +140,7 @@ router.delete('/:id', auth_1.authenticateJWT, auth_1.requireAdmin, async (req, r
 router.post('/:productId/packages', auth_1.authenticateJWT, auth_1.requireAdmin, async (req, res) => {
     try {
         const { productId } = req.params;
-        const { name, amount, price, isActive } = req.body;
+        const { name, amount, price, isActive, category, badge } = req.body;
         if (!name || amount === undefined || price === undefined) {
             return res.status(400).json({ error: 'Required fields missing' });
         }
@@ -147,6 +150,8 @@ router.post('/:productId/packages', auth_1.authenticateJWT, auth_1.requireAdmin,
                 name,
                 amount: parseInt(amount),
                 price: parseFloat(price),
+                category: category || 'NORMAL',
+                badge: badge || null,
                 isActive: isActive !== undefined ? isActive : true,
             },
         });
@@ -161,13 +166,15 @@ router.post('/:productId/packages', auth_1.authenticateJWT, auth_1.requireAdmin,
 router.put('/packages/:packageId', auth_1.authenticateJWT, auth_1.requireAdmin, async (req, res) => {
     try {
         const { packageId } = req.params;
-        const { name, amount, price, isActive } = req.body;
+        const { name, amount, price, isActive, category, badge } = req.body;
         const updatedPackage = await prisma_1.default.package.update({
             where: { id: packageId },
             data: {
                 name,
                 amount: amount !== undefined ? parseInt(amount) : undefined,
                 price: price !== undefined ? parseFloat(price) : undefined,
+                category: category !== undefined ? category : undefined,
+                badge: badge !== undefined ? badge : undefined,
                 isActive,
             },
         });

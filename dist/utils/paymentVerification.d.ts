@@ -14,7 +14,7 @@ export declare function verifyAbaKhqrPayment(order: any): Promise<boolean>;
  *
  * Runs inside an atomic transaction block. Marks the payment as PAID and
  * allocates stock vouchers if the product is a code voucher category, else
- * delivers immediately. Sends Telegram alert notifications.
+ * auto-fulfills direct top-ups via VNGZZ2GAME API. Sends Telegram alert notifications.
  */
 export declare function processVerifiedPayment(order: any, gatewayRef: string): Promise<{
     deliverySuccess: boolean;
@@ -24,8 +24,8 @@ export declare function processVerifiedPayment(order: any, gatewayRef: string): 
         createdAt: Date;
         updatedAt: Date;
         price: number;
-        playerId: string;
         packageId: string;
+        playerId: string;
         playerZoneId: string | null;
         userId: string | null;
         playerNickname: string | null;

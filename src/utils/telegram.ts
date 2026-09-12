@@ -9,15 +9,12 @@ const SANDBOX_MODE = process.env.SANDBOX_MODE === 'true';
 export async function sendTelegramNotification(message: string): Promise<boolean> {
   const logPrefix = '[Telegram Bot Notification]';
   
-  const targetChatIds: string[] = [];
-  if (CHAT_ID && !CHAT_ID.includes('MOCK')) {
-    targetChatIds.push(CHAT_ID);
-  }
-  if (GROUP_CHAT_ID && !GROUP_CHAT_ID.includes('MOCK')) {
-    targetChatIds.push(GROUP_CHAT_ID);
-  }
+  // Send to only 1 primary target Chat ID (prefer CHAT_ID, fallback to GROUP_CHAT_ID)
+  const targetChatId = (CHAT_ID && !CHAT_ID.includes('MOCK'))
+    ? CHAT_ID
+    : ((GROUP_CHAT_ID && !GROUP_CHAT_ID.includes('MOCK')) ? GROUP_CHAT_ID : null);
 
-  if (SANDBOX_MODE || !BOT_TOKEN || BOT_TOKEN.includes('MOCK') || targetChatIds.length === 0) {
+  if (SANDBOX_MODE || !BOT_TOKEN || BOT_TOKEN.includes('MOCK') || !targetChatId) {
     console.log(`\n🔔 ${logPrefix} (SANDBOX MODE - MOCK SEND)`);
     console.log(`-------------------------------------------`);
     console.log(message);
@@ -25,33 +22,29 @@ export async function sendTelegramNotification(message: string): Promise<boolean
     return true;
   }
 
-  let allSuccess = true;
-  for (const cid of targetChatIds) {
-    try {
-      const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          chat_id: cid,
-          text: message,
-          parse_mode: 'HTML',
-        }),
-      });
+  try {
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: targetChatId,
+        text: message,
+        parse_mode: 'HTML',
+      }),
+    });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`${logPrefix} Failed to send telegram notification to ${cid}:`, errorText);
-        allSuccess = false;
-      }
-    } catch (error) {
-      console.error(`${logPrefix} Error sending telegram notification to ${cid}:`, error);
-      allSuccess = false;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`${logPrefix} Failed to send telegram notification to ${targetChatId}:`, errorText);
+      return false;
     }
+    return true;
+  } catch (error) {
+    console.error(`${logPrefix} Error sending telegram notification to ${targetChatId}:`, error);
+    return false;
   }
-
-  return allSuccess;
 }
 

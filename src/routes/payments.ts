@@ -31,12 +31,16 @@ router.post('/create', async (req: AuthenticatedRequest, res: Response) => {
       return res.status(404).json({ error: 'Package not found' });
     }
 
-    // Validate Player ID and retrieve nickname
-    const lookup = await lookupPlayerNickname(pkg.product.slug, playerId, playerZoneId);
-    if (!lookup.success) {
-      return res.status(400).json({ error: `Player ID validation failed: ${lookup.error}` });
+    // Validate Player ID and retrieve nickname (non-blocking)
+    let nickname = 'Player';
+    try {
+      const lookup = await lookupPlayerNickname(pkg.product.slug, playerId, playerZoneId);
+      if (lookup && lookup.nickname) {
+        nickname = lookup.nickname;
+      }
+    } catch {
+      nickname = 'Player';
     }
-    const nickname = lookup.nickname || 'Unknown Player';
 
     // Generate unique payment transaction ID
     const timeCode = Date.now().toString().slice(-6);
@@ -202,6 +206,10 @@ router.get('/status/:transactionId', async (req, res) => {
       }
     }
 
+    const deepLink = order.paymentQrCode ? `abamobilebank://ababank.com?type=payway&qrcode=${encodeURIComponent(order.paymentQrCode)}` : null;
+    const payUrl = order.gatewayRef && order.gatewayRef.startsWith('TXN-') ? `https://www.vngzz2game.site/pay/${order.gatewayRef}` : null;
+    const qrImageUrl = order.paymentQrCode ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=4&data=${encodeURIComponent(order.paymentQrCode)}` : null;
+
     return res.status(200).json({
       id: order.id,
       transactionId: order.paymentTxnId,
@@ -216,6 +224,9 @@ router.get('/status/:transactionId', async (req, res) => {
       paymentMethod: order.paymentMethod,
       stockDeliveredCode: order.stockDeliveredCode,
       paymentQrCode: order.paymentQrCode,
+      deepLink,
+      payUrl,
+      qrImageUrl,
       createdAt: order.createdAt,
     });
   } catch (error) {

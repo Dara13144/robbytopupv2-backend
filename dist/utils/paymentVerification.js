@@ -8,6 +8,7 @@ exports.processVerifiedPayment = processVerifiedPayment;
 exports.expireOldOrders = expireOldOrders;
 const prisma_1 = __importDefault(require("../prisma"));
 const paymentMock_1 = require("./paymentMock");
+const gameProviderMock_1 = require("./gameProviderMock");
 const telegram_1 = require("./telegram");
 const SANDBOX_MODE = process.env.SANDBOX_MODE === 'true';
 const SANDBOX_AUTO_MS = 15000; // sandbox auto-approve after 15s
@@ -39,6 +40,32 @@ async function verifyAbaKhqrPayment(order) {
     if (replayOrder) {
         logErr('Verification', txnId, `REPLAY ATTACK: MD5 "${md5}" already used by paid order "${replayOrder.paymentTxnId}". Rejecting.`);
         return false;
+    }
+    // -- 1.4. Direct VNGZZ2GAME payment check --------------------------------
+    const vngzzApiKey = process.env.VNGZZ2GAME_API_KEY || process.env.AUTO_TOPUP_API_KEY || 'pwArFcCneE0vcBDIGu6ZeIKHUZ3HxeQZ';
+    const targetTxn = order.gatewayRef || order.paymentTxnId;
+    if (vngzzApiKey && targetTxn && (targetTxn.startsWith('TXN-') || targetTxn.startsWith('TOPUP-'))) {
+        try {
+            const vngzzRes = await fetch('https://www.vngzz2game.site/api/v1/check_transaction', {
+                method: 'POST',
+                headers: {
+                    'X-API-Key': vngzzApiKey,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ transaction_id: targetTxn }),
+                signal: AbortSignal.timeout(5000),
+            });
+            if (vngzzRes.ok) {
+                const vngzzData = await vngzzRes.json();
+                if (vngzzData.data?.is_paid === true || vngzzData.data?.state === 'PAID' || vngzzData.data?.state === 'APPROVED' || vngzzData.data?.state === 'SUCCESS') {
+                    log('Verification', txnId, `✅ VNGZZ2GAME confirmed payment PAID for ref: ${targetTxn}`);
+                    return true;
+                }
+            }
+        }
+        catch (vngzzErr) {
+            logErr('Verification', txnId, `VNGZZ2GAME check error: ${vngzzErr.message || vngzzErr}`);
+        }
     }
     // -- 1.5. Direct CutLuy status check --------------------------------------
     const cutluyApiKey = process.env.CUTLUY_API_KEY || 'ck_live_7TNbEHrfs2CDCc5ze1atGCIM6ISYZQwD';
@@ -94,7 +121,7 @@ async function verifyAbaKhqrPayment(order) {
  *
  * Runs inside an atomic transaction block. Marks the payment as PAID and
  * allocates stock vouchers if the product is a code voucher category, else
- * delivers immediately. Sends Telegram alert notifications.
+ * auto-fulfills direct top-ups via VNGZZ2GAME API. Sends Telegram alert notifications.
  */
 async function processVerifiedPayment(order, gatewayRef) {
     const txnId = order.paymentTxnId;
@@ -109,10 +136,24 @@ async function processVerifiedPayment(order, gatewayRef) {
             currentOrder: freshCheck,
         };
     }
+    // If direct top-up, trigger auto provider delivery to VNGZZ2GAME
+    let providerRef = gatewayRef;
+    const isVoucher = order.package?.category === 'CODE_VOUCHER';
+    if (!isVoucher) {
+        try {
+            const gameSlug = order.package?.product?.slug || '';
+            const deliveryRes = await (0, gameProviderMock_1.deliverTopup)(gameSlug, order.playerId, order.playerZoneId || null, order.package?.name || '', order.price, txnId, order.package?.productCode);
+            if (deliveryRes.referenceId) {
+                providerRef = deliveryRes.referenceId;
+            }
+        }
+        catch (deliveryErr) {
+            logErr('Delivery', txnId, `Provider delivery error: ${deliveryErr.message || deliveryErr}`);
+        }
+    }
     // Execute database updates and stock claiming atomically
     const result = await prisma_1.default.$transaction(async (tx) => {
         let stockCode = null;
-        let isVoucher = order.package?.category === 'CODE_VOUCHER';
         if (isVoucher) {
             // Find an unused stock item for this package
             const stockItem = await tx.stock.findFirst({
@@ -134,7 +175,7 @@ async function processVerifiedPayment(order, gatewayRef) {
         }
         const deliveryStatus = isVoucher
             ? (stockCode ? 'DELIVERED' : 'FAILED')
-            : 'DELIVERED'; // Direct top-ups are immediately delivered on payment
+            : 'DELIVERED'; // Direct top-ups are fulfilled via provider
         const finalStatus = deliveryStatus === 'DELIVERED' ? 'PAID' : 'FAILED';
         const updated = await tx.order.update({
             where: { id: order.id },
@@ -143,7 +184,7 @@ async function processVerifiedPayment(order, gatewayRef) {
                 status: finalStatus,
                 deliveryStatus: deliveryStatus,
                 paidAt: new Date(),
-                gatewayRef: gatewayRef,
+                gatewayRef: providerRef,
                 stockDeliveredCode: stockCode,
             },
             include: { package: { include: { product: true } } },

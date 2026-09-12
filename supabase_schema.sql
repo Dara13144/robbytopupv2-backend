@@ -1,18 +1,18 @@
 -- ====================================================================
--- SUPABASE FULL DATABASE SYSTEM SCHEMA FOR DARA-TOPUP
--- Compatible with PostgreSQL 14+, Prisma ORM, and Supabase Studio
--- Project Reference: buielweczgmkgpknmcza
+-- NA-DY TOPUP - COMPLETE MASTER DATABASE SYSTEM SCHEMA FOR SUPABASE
+-- Compatible with PostgreSQL 14+, Supabase Cloud, and Prisma ORM
+-- Project Reference: ueziueclbgymbynuxpby
 -- ====================================================================
 
--- 1. Enable Required Extensions
+-- 1. Enable Required PostgreSQL Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ====================================================================
--- 2. CREATE TABLES
+-- 2. CREATE SYSTEM TABLES
 -- ====================================================================
 
--- 2.1 User Table
+-- 2.1 User Table (Customers & Administrators)
 CREATE TABLE IF NOT EXISTS "User" (
     "id" TEXT PRIMARY KEY DEFAULT ('c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24)),
     "email" TEXT NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS "User" (
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2.2 Product Table (Games & Digital Services)
+-- 2.2 Product Table (Games, Gift Cards & Digital Vouchers)
 CREATE TABLE IF NOT EXISTS "Product" (
     "id" TEXT PRIMARY KEY DEFAULT ('c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24)),
     "name" TEXT NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS "Product" (
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2.3 Package Table (Game Recharge Tiers / Item Bundles)
+-- 2.3 Package Table (Diamond Tiers & Recharge Bundles)
 CREATE TABLE IF NOT EXISTS "Package" (
     "id" TEXT PRIMARY KEY DEFAULT ('c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24)),
     "productId" TEXT NOT NULL,
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS "Package" (
     CONSTRAINT "Package_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- 2.4 Order Table (Top-Up Transactions & KHQR Invoices)
+-- 2.4 Order Table (Top-Up Transactions & Invoices)
 CREATE TABLE IF NOT EXISTS "Order" (
     "id" TEXT PRIMARY KEY DEFAULT ('c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24)),
     "userId" TEXT,
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS "Order" (
     CONSTRAINT "Order_packageId_fkey" FOREIGN KEY ("packageId") REFERENCES "Package"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
--- 2.5 Stock Table (Digital Voucher Gift Codes / Serial Keys)
+-- 2.5 Stock Table (Digital Voucher Serial Codes & Gift Keys)
 CREATE TABLE IF NOT EXISTS "Stock" (
     "id" TEXT PRIMARY KEY DEFAULT ('c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24)),
     "packageId" TEXT NOT NULL,
@@ -84,6 +84,23 @@ CREATE TABLE IF NOT EXISTS "Stock" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Stock_packageId_fkey" FOREIGN KEY ("packageId") REFERENCES "Package"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- 2.6 SystemSetting Table (Global Website Settings & Tickers)
+CREATE TABLE IF NOT EXISTS "SystemSetting" (
+    "key" TEXT PRIMARY KEY,
+    "value" TEXT NOT NULL,
+    "description" TEXT,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2.7 AuditLog Table (Security & Transaction Activity Logs)
+CREATE TABLE IF NOT EXISTS "AuditLog" (
+    "id" TEXT PRIMARY KEY DEFAULT ('c' || substr(md5(random()::text || clock_timestamp()::text), 1, 24)),
+    "action" TEXT NOT NULL,
+    "performedBy" TEXT,
+    "details" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ====================================================================
@@ -103,45 +120,44 @@ CREATE INDEX IF NOT EXISTS "idx_order_paymentStatus" ON "Order"("paymentStatus")
 CREATE INDEX IF NOT EXISTS "idx_order_createdAt" ON "Order"("createdAt" DESC);
 CREATE INDEX IF NOT EXISTS "idx_stock_packageId" ON "Stock"("packageId");
 CREATE INDEX IF NOT EXISTS "idx_stock_isUsed" ON "Stock"("isUsed");
+CREATE INDEX IF NOT EXISTS "idx_auditlog_createdAt" ON "AuditLog"("createdAt" DESC);
 
 -- ====================================================================
--- 4. AUTOMATIC createdAt & updatedAt TIMESTAMP TRIGGERS & DEFAULTS
+-- 4. AUTOMATIC TIMESTAMP TRIGGERS & DEFAULTS
 -- ====================================================================
 
--- Ensure defaults exist even on pre-existing tables
 ALTER TABLE "User" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE "User" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
-
 ALTER TABLE "Product" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE "Product" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
-
 ALTER TABLE "Package" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE "Package" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
-
 ALTER TABLE "Order" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE "Order" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
-
 ALTER TABLE "Stock" ALTER COLUMN "createdAt" SET DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE "Stock" ALTER COLUMN "updatedAt" SET DEFAULT CURRENT_TIMESTAMP;
 
--- Fill any pre-existing NULL timestamps
-UPDATE "User" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
-UPDATE "User" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
-UPDATE "Product" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
-UPDATE "Product" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
-UPDATE "Package" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
-UPDATE "Package" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+DO $$
+BEGIN
+    UPDATE "User" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+    UPDATE "User" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+    UPDATE "Product" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+    UPDATE "Product" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+    UPDATE "Package" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+    UPDATE "Package" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+    UPDATE "Order" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+    UPDATE "Order" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+    UPDATE "Stock" SET "createdAt" = CURRENT_TIMESTAMP WHERE "createdAt" IS NULL;
+    UPDATE "Stock" SET "updatedAt" = CURRENT_TIMESTAMP WHERE "updatedAt" IS NULL;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
 
 CREATE OR REPLACE FUNCTION set_timestamps()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
-        IF NEW."createdAt" IS NULL THEN
-            NEW."createdAt" = CURRENT_TIMESTAMP;
-        END IF;
-        IF NEW."updatedAt" IS NULL THEN
-            NEW."updatedAt" = CURRENT_TIMESTAMP;
-        END IF;
+        IF NEW."createdAt" IS NULL THEN NEW."createdAt" = CURRENT_TIMESTAMP; END IF;
+        IF NEW."updatedAt" IS NULL THEN NEW."updatedAt" = CURRENT_TIMESTAMP; END IF;
     ELSIF TG_OP = 'UPDATE' THEN
         NEW."updatedAt" = CURRENT_TIMESTAMP;
     END IF;
@@ -149,23 +165,18 @@ BEGIN
 END;
 $$ LANGUAGE 'plpgsql';
 
-DROP TRIGGER IF EXISTS set_user_updated_at ON "User";
 DROP TRIGGER IF EXISTS set_user_timestamps ON "User";
 CREATE TRIGGER set_user_timestamps BEFORE INSERT OR UPDATE ON "User" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
-DROP TRIGGER IF EXISTS set_product_updated_at ON "Product";
 DROP TRIGGER IF EXISTS set_product_timestamps ON "Product";
 CREATE TRIGGER set_product_timestamps BEFORE INSERT OR UPDATE ON "Product" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
-DROP TRIGGER IF EXISTS set_package_updated_at ON "Package";
 DROP TRIGGER IF EXISTS set_package_timestamps ON "Package";
 CREATE TRIGGER set_package_timestamps BEFORE INSERT OR UPDATE ON "Package" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
-DROP TRIGGER IF EXISTS set_order_updated_at ON "Order";
 DROP TRIGGER IF EXISTS set_order_timestamps ON "Order";
 CREATE TRIGGER set_order_timestamps BEFORE INSERT OR UPDATE ON "Order" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
-DROP TRIGGER IF EXISTS set_stock_updated_at ON "Stock";
 DROP TRIGGER IF EXISTS set_stock_timestamps ON "Stock";
 CREATE TRIGGER set_stock_timestamps BEFORE INSERT OR UPDATE ON "Stock" FOR EACH ROW EXECUTE FUNCTION set_timestamps();
 
@@ -173,40 +184,39 @@ CREATE TRIGGER set_stock_timestamps BEFORE INSERT OR UPDATE ON "Stock" FOR EACH 
 -- 5. ROW LEVEL SECURITY (RLS) POLICIES & SCHEMA GRANTS
 -- ====================================================================
 
--- Enable RLS on all tables
 ALTER TABLE "Product" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Package" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "User" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Order" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Stock" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "SystemSetting" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "AuditLog" ENABLE ROW LEVEL SECURITY;
 
--- Grants for standard Supabase API roles
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, service_role;
-GRANT SELECT ON "Product", "Package" TO anon, authenticated;
+GRANT SELECT ON "Product", "Package", "SystemSetting" TO anon, authenticated;
 GRANT SELECT, INSERT ON "Order" TO anon, authenticated;
 
--- Products & Packages: Public read access
 DROP POLICY IF EXISTS "Public can view active products" ON "Product";
 CREATE POLICY "Public can view active products" ON "Product" FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS "Public can view active packages" ON "Package";
 CREATE POLICY "Public can view active packages" ON "Package" FOR SELECT TO anon, authenticated USING (true);
 
--- Orders: Public can create orders (guest checkout supported) and view orders
+DROP POLICY IF EXISTS "Public can view system settings" ON "SystemSetting";
+CREATE POLICY "Public can view system settings" ON "SystemSetting" FOR SELECT TO anon, authenticated USING (true);
+
 DROP POLICY IF EXISTS "Public can create orders" ON "Order";
 CREATE POLICY "Public can create orders" ON "Order" FOR INSERT TO anon, authenticated WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Public can view orders" ON "Order";
 CREATE POLICY "Public can view orders" ON "Order" FOR SELECT TO anon, authenticated USING (true);
 
--- Users: Authenticated users can view their own profile
 DROP POLICY IF EXISTS "Users can view own profile" ON "User";
 CREATE POLICY "Users can view own profile" ON "User" FOR SELECT TO authenticated USING (auth.uid()::text = id OR email = (auth.jwt() ->> 'email'));
 
--- Backend Service Role has full unrestricted access to everything
 DROP POLICY IF EXISTS "Service role bypass User" ON "User";
 CREATE POLICY "Service role bypass User" ON "User" FOR ALL TO service_role USING (true) WITH CHECK (true);
 
@@ -222,177 +232,377 @@ CREATE POLICY "Service role bypass Order" ON "Order" FOR ALL TO service_role USI
 DROP POLICY IF EXISTS "Service role bypass Stock" ON "Stock";
 CREATE POLICY "Service role bypass Stock" ON "Stock" FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Service role bypass SystemSetting" ON "SystemSetting";
+CREATE POLICY "Service role bypass SystemSetting" ON "SystemSetting" FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Service role bypass AuditLog" ON "AuditLog";
+CREATE POLICY "Service role bypass AuditLog" ON "AuditLog" FOR ALL TO service_role USING (true) WITH CHECK (true);
+
 -- ====================================================================
--- 6. DEFAULT ADMINISTRATOR SEED
--- Passwords are encrypted with bcrypt for 'admin123'
+-- 6. DEFAULT ADMINISTRATOR & SYSTEM SETTINGS SEED
 -- ====================================================================
 
--- Delete legacy administrator accounts
+-- 6.1 Administrator Accounts
 DELETE FROM "User" WHERE "email" IN ('admin@topup.com', 'admin@gmail.com');
 
 INSERT INTO "User" ("id", "email", "password", "role", "createdAt", "updatedAt")
 VALUES 
-  ('usr_admin_dara_01', 'mdara9695@gmail.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  ('usr_admin_dara_01', 'mdara9695@gmail.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('usr_admin_nady_01', 'admin@nadytopup.com', '$2a$10$6MJi2ySmEqnKRa4Avtad1en6loFyWVZTvt7hOp5BFC7PR8g.C08Qm', 'ADMIN', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT ("email") DO UPDATE SET "role" = 'ADMIN', "updatedAt" = CURRENT_TIMESTAMP;
 
+-- 6.2 Global System Settings
+INSERT INTO "SystemSetting" ("key", "value", "description")
+VALUES
+  ('BRAND_NAME', 'NA-DY TOPUP', 'Official Brand Name'),
+  ('ANNOUNCEMENT_TEXT', '🎉 សូមស្វាគមន៍មកកាន់ NA-DY TOPUP! បញ្ចូលពេជ្រលឿនរហ័ស 24/7 តាមរយៈ ABA & Bakong KHQR!', 'Announcement ticker banner text'),
+  ('STORE_STATUS', 'ONLINE', 'Store Operational Status: ONLINE / MAINTENANCE'),
+  ('CONTACT_TELEGRAM', '@nadytopup_support', 'Official Telegram Support')
+ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value", "updatedAt" = CURRENT_TIMESTAMP;
+
 -- ====================================================================
--- 7. TOP GAMES CATALOG & DEFAULT PACKAGES SEED
+-- 7. ALL GAMES & DIGITAL PRODUCTS CATALOG SEED (100% COMPLETE CATALOG)
 -- ====================================================================
 
--- 7.1 Mobile Legends: Bang Bang
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_mlbb_001', 'Mobile Legends: Bang Bang', 'mobile-legends', '/images/games/mlbb.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/mlbb.png', "isActive" = true;
+INSERT INTO "Product" ("name", "slug", "image", "category", "isActive")
+VALUES
+  -- MOBA & Battle Arena
+  ('Mobile Legends: Bang Bang', 'mobile-legends', '/images/games/mlbb.png', 'MOBILE_GAME', true),
+  ('MOBILE LEGENDS | KHMER', 'mobile-legends-khmer', '/images/games/mlbb.png', 'MOBILE_GAME', true),
+  ('MOBILE LEGENDS | PHILIPPINES', 'mobile-legends-philippines', '/images/games/mlbb.png', 'MOBILE_GAME', true),
+  ('MOBILE LEGENDS | KHMER (VIP)', 'mobile-legends-indonesia', '/images/games/mlbb.png', 'MOBILE_GAME', true),
+  ('Honor of Kings', 'honor-of-kings', '/images/games/hok.png', 'MOBILE_GAME', true),
+  ('Arena of Valor', 'arena-of-valor', '/images/games/hok.png', 'MOBILE_GAME', true),
+  ('League of Legends: Wild Rift', 'wild-rift', '/images/games/hok.png', 'MOBILE_GAME', true),
+  ('Pokémon UNITE', 'pokemon-unite', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Onmyoji Arena', 'onmyoji-arena', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Marvel Super War', 'marvel-super-war', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Extraordinary Ones', 'extraordinary-ones', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Heroes Evolved', 'heroes-evolved', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Vainglory', 'vainglory', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Auto Chess', 'auto-chess', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Chess Rush', 'chess-rush', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Magic Chess: Go Go', 'magic-chess-gogo', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Brawl Stars', 'brawl-stars', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Zooba', 'zooba', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('T3 Arena', 't3-arena', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Garena RoV', 'garena-rov', '/images/games/hok.png', 'MOBILE_GAME', true),
+  ('Garena Liên Quân Mobile', 'garena-lien-quan', '/images/games/hok.png', 'MOBILE_GAME', true),
+  ('Moonton Mobile Legends', 'moonton-mlbb', '/images/games/mlbb.png', 'MOBILE_GAME', true),
+  ('Tencent Honor of Kings', 'tencent-hok', '/images/games/hok.png', 'MOBILE_GAME', true),
+  ('League of Legends', 'league-of-legends', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Dota 2', 'dota-2', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Teamfight Tactics', 'teamfight-tactics', '/images/games/valorant.png', 'PC_GAME', true),
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_mlbb_01', 'prod_mlbb_001', 'Weekly Diamond Pass', 1, 1.99, 'BEST_SELLER', 'VIP Pass 🔥', true),
-  ('pkg_mlbb_02', 'prod_mlbb_001', '86 Diamonds (78 + 8 Bonus)', 86, 1.45, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_mlbb_03', 'prod_mlbb_001', '172 Diamonds (156 + 16 Bonus)', 172, 2.85, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_mlbb_04', 'prod_mlbb_001', '257 Diamonds (234 + 23 Bonus)', 257, 4.25, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_mlbb_05', 'prod_mlbb_001', '706 Diamonds (625 + 81 Bonus)', 706, 11.50, 'NORMAL', 'Bonus 12%', true),
-  ('pkg_mlbb_06', 'prod_mlbb_001', '2195 Diamonds (1860 + 335 Bonus)', 2195, 34.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+  -- Shooters & Battle Royale
+  ('Free Fire', 'free-fire', '/images/games/freefire.png', 'MOBILE_GAME', true),
+  ('FREE FIRE | KHMER', 'free-fire-khmer', '/images/games/freefire.png', 'MOBILE_GAME', true),
+  ('FREE FIRE | KHMER (VIP)', 'free-fire-indonesia', '/images/games/freefire.png', 'MOBILE_GAME', true),
+  ('FREE FIRE | VIETNAM', 'free-fire-vietnam', '/images/games/freefire.png', 'MOBILE_GAME', true),
+  ('FREE FIRE | TAIWAN', 'free-fire-taiwan', '/images/games/freefire.png', 'MOBILE_GAME', true),
+  ('Free Fire MAX', 'free-fire-max', '/images/games/freefire.png', 'MOBILE_GAME', true),
+  ('Garena Free Fire', 'garena-free-fire', '/images/games/freefire.png', 'MOBILE_GAME', true),
+  ('PUBG Mobile', 'pubg-mobile', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Tencent PUBG Mobile', 'tencent-pubgm', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('PUBG: New State', 'pubg-new-state', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('PUBG PC', 'pubg-pc', '/images/games/pubgm.png', 'PC_GAME', true),
+  ('PUBG Console', 'pubg-console', '/images/games/pubgm.png', 'PC_GAME', true),
+  ('Call of Duty: Mobile', 'call-of-duty-mobile', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Call of Duty: Warzone Mobile', 'cod-warzone-mobile', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Critical Ops', 'critical-ops', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Modern Combat 5', 'modern-combat-5', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Shadowgun Legends', 'shadowgun-legends', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Into the Dead 2', 'into-the-dead-2', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('World War Heroes', 'world-war-heroes', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Combat Master', 'combat-master', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Farlight 84', 'farlight-84', '/images/games/farlight.png', 'MOBILE_GAME', true),
+  ('Blood Strike', 'blood-strike', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('Bullet Echo', 'bullet-echo', '/images/games/bullet-echo.png', 'MOBILE_GAME', true),
+  ('Arena Breakout', 'arena-breakout', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('Standoff 2', 'standoff-2', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('Delta Force', 'delta-force', '/images/games/deltaforce.png', 'PC_GAME', true),
+  ('Garena Delta Force', 'garena-delta-force', '/images/games/deltaforce.png', 'PC_GAME', true),
+  ('Rainbow Six Mobile', 'rainbow-six-mobile', '/images/games/pubgm.png', 'MOBILE_GAME', true),
+  ('Valorant', 'valorant', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Counter-Strike 2', 'counter-strike-2', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Overwatch 2', 'overwatch-2', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Apex Legends', 'apex-legends', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Fortnite', 'fortnite', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Fortnite Save the World', 'fortnite-save-the-world', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Battlefield 2042', 'battlefield-2042', '/images/games/valorant.png', 'PC_GAME', true),
+  ('The Finals', 'the-finals', '/images/games/valorant.png', 'PC_GAME', true),
+  ('XDefiant', 'xdefiant', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Splitgate', 'splitgate', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Halo Infinite', 'halo-infinite', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Paladins', 'paladins', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Warframe', 'warframe', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Destiny 2', 'destiny-2', '/images/games/valorant.png', 'PC_GAME', true),
+  ('War Thunder', 'war-thunder', '/images/games/valorant.png', 'PC_GAME', true),
+  ('World of Tanks', 'world-of-tanks', '/images/games/valorant.png', 'PC_GAME', true),
+  ('World of Warships', 'world-of-warships', '/images/games/valorant.png', 'PC_GAME', true),
+  ('CrossFire', 'crossfire', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Point Blank', 'point-blank', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Helldivers 2', 'helldivers-2', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Escape from Tarkov', 'escape-from-tarkov', '/images/games/valorant.png', 'PC_GAME', true),
 
--- 7.2 Free Fire
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_ff_002', 'Free Fire', 'free-fire', '/images/games/freefire.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/freefire.png', "isActive" = true;
+  -- Anime, RPG & Gacha
+  ('Genshin Impact', 'genshin-impact', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Honkai: Star Rail', 'honkai-star-rail', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Honkai Impact 3rd', 'honkai-impact-3rd', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Zenless Zone Zero', 'zenless-zone-zero', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Wuthering Waves', 'wuthering-waves', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Solo Leveling: ARISE', 'solo-leveling-arise', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Tower of Fantasy', 'tower-of-fantasy', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('AFK Journey', 'afk-journey', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('AFK Arena', 'afk-arena', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Black Clover M', 'black-clover-m', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('One Punch Man: World', 'one-punch-man-world', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Naruto: Slugfest', 'naruto-slugfest', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('One Piece Bounty Rush', 'one-piece-bounty-rush', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Dragon Ball Legends', 'dragon-ball-legends', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Bleach: Soul Resonance', 'bleach-soul-resonance', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Jujutsu Kaisen: Phantom Parade', 'jujutsu-kaisen-phantom-parade', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Demon Slayer: Kimetsu no Yaiba', 'demon-slayer-kimetsu', '/images/games/genshin-impact.png', 'PC_GAME', true),
+  ('Pokémon GO', 'pokemon-go', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Monster Hunter Now', 'monster-hunter-now', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Black Desert', 'black-desert', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Black Desert Mobile', 'black-desert-mobile', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_ff_01', 'prod_ff_002', 'Weekly Membership', 1, 1.99, 'BEST_SELLER', 'Hot Deal 🔥', true),
-  ('pkg_ff_02', 'prod_ff_002', '100 Diamonds + 10 Bonus', 110, 0.99, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_ff_03', 'prod_ff_002', '310 Diamonds + 31 Bonus', 341, 2.99, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_ff_04', 'prod_ff_002', '520 Diamonds + 52 Bonus', 572, 4.90, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_ff_05', 'prod_ff_002', '1060 Diamonds + 106 Bonus', 1166, 9.75, 'NORMAL', 'Bonus 10%', true),
-  ('pkg_ff_06', 'prod_ff_002', '2180 Diamonds + 218 Bonus', 2398, 19.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+  -- MMORPG, Sandbox & Open World
+  ('Ragnarok Origin', 'ragnarok-origin', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Ragnarok M: Eternal Love', 'ragnarok-m-eternal-love', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Ragnarok X: Next Generation', 'ragnarok-x-next-generation', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Albion Online', 'albion-online', '/images/games/valorant.png', 'PC_GAME', true),
+  ('World of Warcraft', 'world-of-warcraft', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Final Fantasy XIV', 'final-fantasy-xiv', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Lost Ark', 'lost-ark', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Lineage 2M', 'lineage-2m', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Diablo IV', 'diablo-iv', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Diablo Immortal', 'diablo-immortal', '/images/games/genshin-impact.png', 'MOBILE_GAME', true),
+  ('Path of Exile', 'path-of-exile', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Minecraft Java Edition', 'minecraft-java-edition', '/images/games/roblox.png', 'PC_GAME', true),
+  ('Minecraft Bedrock Edition', 'minecraft-bedrock-edition', '/images/games/roblox.png', 'PC_GAME', true),
+  ('Roblox', 'roblox', '/images/games/roblox.png', 'MOBILE_GAME', true),
+  ('Rust', 'rust', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Palworld', 'palworld', '/images/games/valorant.png', 'PC_GAME', true),
+  ('GTA V', 'gta-v', '/images/games/valorant.png', 'PC_GAME', true),
+  ('GTA Online', 'gta-online', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Red Dead Redemption 2', 'red-dead-redemption-2', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Cyberpunk 2077', 'cyberpunk-2077', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Elden Ring', 'elden-ring', '/images/games/valorant.png', 'PC_GAME', true),
 
--- 7.3 PUBG Mobile
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_pubg_003', 'PUBG Mobile', 'pubg-mobile', '/images/games/pubgm.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/pubgm.png', "isActive" = true;
+  -- Racing & Sports
+  ('Asphalt 9', 'asphalt-9', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('Need for Speed Mobile', 'need-for-speed-mobile', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('CarX Street', 'carx-street', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('Forza Horizon 5', 'forza-horizon-5', '/images/games/valorant.png', 'PC_GAME', true),
+  ('EA SPORTS FC Mobile', 'ea-sports-fc-mobile', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('EA SPORTS FC 25', 'ea-sports-fc-25', '/images/games/valorant.png', 'PC_GAME', true),
+  ('eFootball Mobile', 'efootball-mobile', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('NBA 2K Mobile', 'nba-2k-mobile', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('8 Ball Pool', '8-ball-pool', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
+  ('Dream League Soccer', 'dream-league-soccer', '/images/games/bloodstrike.png', 'MOBILE_GAME', true),
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_pubg_01', 'prod_pubg_003', '60 UC', 60, 0.99, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_pubg_02', 'prod_pubg_003', '325 UC (300 + 25 Bonus)', 325, 4.85, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_pubg_03', 'prod_pubg_003', '660 UC (600 + 60 Bonus)', 660, 9.60, 'NORMAL', 'Royale Pass', true),
-  ('pkg_pubg_04', 'prod_pubg_003', '1800 UC (1500 + 300 Bonus)', 1800, 23.90, 'NORMAL', 'Bonus 20%', true),
-  ('pkg_pubg_05', 'prod_pubg_003', '3850 UC (3000 + 850 Bonus)', 3850, 47.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+  -- Strategy & Cards
+  ('Clash of Clans', 'clash-of-clans', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Clash Royale', 'clash-royale', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Lords Mobile', 'lords-mobile', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Rise of Kingdoms', 'rise-of-kingdoms', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Whiteout Survival', 'whiteout-survival', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Last War: Survival Game', 'last-war-survival', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Yu-Gi-Oh! Master Duel', 'yugioh-master-duel', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Pokémon TCG Pocket', 'pokemon-tcg-pocket', '/images/games/magicchess.png', 'MOBILE_GAME', true),
 
--- 7.4 Honor of Kings
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_hok_004', 'Honor of Kings', 'honor-of-kings', '/images/games/hok.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/hok.png', "isActive" = true;
+  -- Casual & Party
+  ('Candy Crush Saga', 'candy-crush-saga', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Coin Master', 'coin-master', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Township', 'township', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Hay Day', 'hay-day', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Subway Surfers', 'subway-surfers', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Stumble Guys', 'stumble-guys', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Squad Busters', 'squad-busters', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Eggy Party', 'eggy-party', '/images/games/magicchess.png', 'MOBILE_GAME', true),
+  ('Fall Guys', 'fall-guys', '/images/games/valorant.png', 'PC_GAME', true),
+  ('Among Us', 'among-us', '/images/games/valorant.png', 'PC_GAME', true),
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_hok_01', 'prod_hok_004', '80 Tokens (+8 Bonus)', 88, 0.99, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_hok_02', 'prod_hok_004', '240 Tokens (+24 Bonus)', 264, 2.99, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_hok_03', 'prod_hok_004', '400 Tokens (+40 Bonus)', 440, 4.85, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_hok_04', 'prod_hok_004', '800 Tokens (+95 Bonus)', 895, 9.70, 'NORMAL', 'Bonus 12%', true),
-  ('pkg_hok_05', 'prod_hok_004', '2400 Tokens (+300 Bonus)', 2700, 28.90, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+  -- Gift Cards & Digital Vouchers
+  ('Steam Wallet Code', 'steam-wallet', '/images/games/valorant.png', 'VOUCHER', true),
+  ('Razer Gold PIN', 'razer-gold', '/images/games/valorant.png', 'VOUCHER', true),
+  ('Google Play Gift Card', 'google-play-gift-card', '/images/games/magicchess.png', 'VOUCHER', true),
+  ('Apple iTunes Gift Card', 'apple-itunes-gift-card', '/images/games/magicchess.png', 'VOUCHER', true)
+ON CONFLICT ("slug") DO UPDATE SET
+  "name" = EXCLUDED."name",
+  "image" = EXCLUDED."image",
+  "category" = EXCLUDED."category",
+  "isActive" = true;
 
--- 7.5 Genshin Impact
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_genshin_005', 'Genshin Impact', 'genshin-impact', '/images/games/genshin-impact.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/genshin-impact.png', "isActive" = true;
+-- ====================================================================
+-- 8. PACKAGES SEED (Dynamic Foreign-Key Safe Matching)
+-- ====================================================================
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_gen_01', 'prod_genshin_005', 'Blessing of the Welkin Moon', 1, 4.99, 'BEST_SELLER', 'Best Value 🌙', true),
-  ('pkg_gen_02', 'prod_genshin_005', '300 + 30 Genesis Crystals', 330, 4.90, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_gen_03', 'prod_genshin_005', '980 + 110 Genesis Crystals', 1090, 14.80, 'NORMAL', 'Bonus 11%', true),
-  ('pkg_gen_04', 'prod_genshin_005', '1980 + 260 Genesis Crystals', 2240, 29.50, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_gen_05', 'prod_genshin_005', '3280 + 600 Genesis Crystals', 3880, 48.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+-- 8.1 Mobile Legends: Bang Bang
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, 'Weekly Diamond Pass', 1, 1.99, 'BEST_SELLER', 'VIP Pass 🔥', true FROM "Product" p WHERE p.slug = 'mobile-legends'
+UNION ALL
+SELECT p.id, '86 Diamonds (78 + 8 Bonus)', 86, 1.45, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'mobile-legends'
+UNION ALL
+SELECT p.id, '172 Diamonds (156 + 16 Bonus)', 172, 2.85, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'mobile-legends'
+UNION ALL
+SELECT p.id, '257 Diamonds (234 + 23 Bonus)', 257, 4.25, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'mobile-legends'
+UNION ALL
+SELECT p.id, '706 Diamonds (625 + 81 Bonus)', 706, 11.50, 'NORMAL', 'Bonus 12%', true FROM "Product" p WHERE p.slug = 'mobile-legends'
+UNION ALL
+SELECT p.id, '2195 Diamonds (1860 + 335 Bonus)', 2195, 34.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true FROM "Product" p WHERE p.slug = 'mobile-legends';
 
--- 7.6 Roblox
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_roblox_006', 'Roblox', 'roblox', '/images/games/roblox.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/roblox.png', "isActive" = true;
+-- 8.2 MOBILE LEGENDS | KHMER Regional
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, 'Weekly Diamond Pass', 1, 1.99, 'BEST_SELLER', 'VIP Pass 🔥', true FROM "Product" p WHERE p.slug = 'mobile-legends-khmer'
+UNION ALL
+SELECT p.id, '86 Diamonds (78 + 8 Bonus)', 86, 1.45, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'mobile-legends-khmer'
+UNION ALL
+SELECT p.id, '172 Diamonds (156 + 16 Bonus)', 172, 2.85, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'mobile-legends-khmer'
+UNION ALL
+SELECT p.id, '257 Diamonds (234 + 23 Bonus)', 257, 4.25, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'mobile-legends-khmer'
+UNION ALL
+SELECT p.id, '706 Diamonds (625 + 81 Bonus)', 706, 11.50, 'NORMAL', 'Bonus 12%', true FROM "Product" p WHERE p.slug = 'mobile-legends-khmer'
+UNION ALL
+SELECT p.id, '2195 Diamonds (1860 + 335 Bonus)', 2195, 34.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true FROM "Product" p WHERE p.slug = 'mobile-legends-khmer';
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_rbx_01', 'prod_roblox_006', '80 Robux', 80, 0.99, 'BEST_SELLER', 'Fast ⚡', true),
-  ('pkg_rbx_02', 'prod_roblox_006', '400 Robux', 400, 4.85, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_rbx_03', 'prod_roblox_006', '800 Robux', 800, 9.60, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_rbx_04', 'prod_roblox_006', '1700 Robux', 1700, 19.80, 'NORMAL', 'Bonus 15%', true),
-  ('pkg_rbx_05', 'prod_roblox_006', '4500 Robux', 4500, 49.00, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+-- 8.3 Free Fire
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, 'Weekly Membership', 1, 1.99, 'BEST_SELLER', 'Hot Deal 🔥', true FROM "Product" p WHERE p.slug = 'free-fire'
+UNION ALL
+SELECT p.id, '100 Diamonds + 10 Bonus', 110, 0.99, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'free-fire'
+UNION ALL
+SELECT p.id, '310 Diamonds + 31 Bonus', 341, 2.99, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'free-fire'
+UNION ALL
+SELECT p.id, '520 Diamonds + 52 Bonus', 572, 4.90, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'free-fire'
+UNION ALL
+SELECT p.id, '1060 Diamonds + 106 Bonus', 1166, 9.75, 'NORMAL', 'Bonus 10%', true FROM "Product" p WHERE p.slug = 'free-fire'
+UNION ALL
+SELECT p.id, '2180 Diamonds + 218 Bonus', 2398, 19.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true FROM "Product" p WHERE p.slug = 'free-fire';
 
--- 7.7 Valorant
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_val_007', 'Valorant', 'valorant', '/images/games/valorant.png', 'PC_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/valorant.png', "isActive" = true;
+-- 8.4 FREE FIRE | KHMER Regional
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, 'Weekly Membership', 1, 1.99, 'BEST_SELLER', 'Hot Deal 🔥', true FROM "Product" p WHERE p.slug = 'free-fire-khmer'
+UNION ALL
+SELECT p.id, '100 Diamonds + 10 Bonus', 110, 0.99, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'free-fire-khmer'
+UNION ALL
+SELECT p.id, '310 Diamonds + 31 Bonus', 341, 2.99, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'free-fire-khmer'
+UNION ALL
+SELECT p.id, '520 Diamonds + 52 Bonus', 572, 4.90, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'free-fire-khmer'
+UNION ALL
+SELECT p.id, '1060 Diamonds + 106 Bonus', 1166, 9.75, 'NORMAL', 'Bonus 10%', true FROM "Product" p WHERE p.slug = 'free-fire-khmer'
+UNION ALL
+SELECT p.id, '2180 Diamonds + 218 Bonus', 2398, 19.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true FROM "Product" p WHERE p.slug = 'free-fire-khmer';
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_val_01', 'prod_val_007', '475 Valorant Points (VP)', 475, 4.99, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_val_02', 'prod_val_007', '1000 Valorant Points (VP)', 1000, 9.99, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_val_03', 'prod_val_007', '2050 Valorant Points (VP)', 2050, 19.80, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_val_04', 'prod_val_007', '3650 Valorant Points (VP)', 3650, 34.50, 'NORMAL', 'Bonus 10%', true),
-  ('pkg_val_05', 'prod_val_007', '5350 Valorant Points (VP)', 5350, 49.00, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+-- 8.5 PUBG Mobile
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, '60 UC', 60, 0.99, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'pubg-mobile'
+UNION ALL
+SELECT p.id, '325 UC (300 + 25 Bonus)', 325, 4.85, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'pubg-mobile'
+UNION ALL
+SELECT p.id, '660 UC (600 + 60 Bonus)', 660, 9.60, 'NORMAL', 'Royale Pass', true FROM "Product" p WHERE p.slug = 'pubg-mobile'
+UNION ALL
+SELECT p.id, '1800 UC (1500 + 300 Bonus)', 1800, 23.90, 'NORMAL', 'Bonus 20%', true FROM "Product" p WHERE p.slug = 'pubg-mobile'
+UNION ALL
+SELECT p.id, '3850 UC (3000 + 850 Bonus)', 3850, 47.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true FROM "Product" p WHERE p.slug = 'pubg-mobile';
 
--- 7.8 Mobile Legends Khmer Regional
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_mlbb_kh_008', 'MOBILE LEGENDS | KHMER', 'mobile-legends-khmer', '/images/games/mlbb.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/mlbb.png', "isActive" = true;
+-- 8.6 Honor of Kings
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, '80 Tokens (+8 Bonus)', 88, 0.99, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'honor-of-kings'
+UNION ALL
+SELECT p.id, '240 Tokens (+24 Bonus)', 264, 2.99, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'honor-of-kings'
+UNION ALL
+SELECT p.id, '400 Tokens (+40 Bonus)', 440, 4.85, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'honor-of-kings'
+UNION ALL
+SELECT p.id, '800 Tokens (+95 Bonus)', 895, 9.70, 'NORMAL', 'Bonus 12%', true FROM "Product" p WHERE p.slug = 'honor-of-kings'
+UNION ALL
+SELECT p.id, '2400 Tokens (+300 Bonus)', 2700, 28.90, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true FROM "Product" p WHERE p.slug = 'honor-of-kings';
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_mlbb_kh_01', 'prod_mlbb_kh_008', 'Weekly Diamond Pass', 1, 1.99, 'BEST_SELLER', 'VIP Pass 🔥', true),
-  ('pkg_mlbb_kh_02', 'prod_mlbb_kh_008', '86 Diamonds (78 + 8 Bonus)', 86, 1.45, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_mlbb_kh_03', 'prod_mlbb_kh_008', '172 Diamonds (156 + 16 Bonus)', 172, 2.85, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_mlbb_kh_04', 'prod_mlbb_kh_008', '257 Diamonds (234 + 23 Bonus)', 257, 4.25, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_mlbb_kh_05', 'prod_mlbb_kh_008', '706 Diamonds (625 + 81 Bonus)', 706, 11.50, 'NORMAL', 'Bonus 12%', true),
-  ('pkg_mlbb_kh_06', 'prod_mlbb_kh_008', '2195 Diamonds (1860 + 335 Bonus)', 2195, 34.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+-- 8.7 Genshin Impact
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, 'Blessing of the Welkin Moon', 1, 4.99, 'BEST_SELLER', 'Best Value 🌙', true FROM "Product" p WHERE p.slug = 'genshin-impact'
+UNION ALL
+SELECT p.id, '300 + 30 Genesis Crystals', 330, 4.90, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'genshin-impact'
+UNION ALL
+SELECT p.id, '980 + 110 Genesis Crystals', 1090, 14.80, 'NORMAL', 'Bonus 11%', true FROM "Product" p WHERE p.slug = 'genshin-impact'
+UNION ALL
+SELECT p.id, '1980 + 260 Genesis Crystals', 2240, 29.50, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'genshin-impact'
+UNION ALL
+SELECT p.id, '3280 + 600 Genesis Crystals', 3880, 48.90, 'NORMAL', 'កញ្ចប់ធំ 💎', true FROM "Product" p WHERE p.slug = 'genshin-impact';
 
--- 7.9 Free Fire Khmer Regional
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_ff_kh_009', 'FREE FIRE | KHMER', 'free-fire-khmer', '/images/games/freefire.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/freefire.png', "isActive" = true;
+-- 8.8 Roblox
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, '80 Robux', 80, 0.99, 'BEST_SELLER', 'Fast ⚡', true FROM "Product" p WHERE p.slug = 'roblox'
+UNION ALL
+SELECT p.id, '400 Robux', 400, 4.85, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'roblox'
+UNION ALL
+SELECT p.id, '800 Robux', 800, 9.60, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'roblox'
+UNION ALL
+SELECT p.id, '1700 Robux', 1700, 19.80, 'NORMAL', 'Bonus 15%', true FROM "Product" p WHERE p.slug = 'roblox'
+UNION ALL
+SELECT p.id, '4500 Robux', 4500, 49.00, 'NORMAL', 'កញ្ចប់ធំ 💎', true FROM "Product" p WHERE p.slug = 'roblox';
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_ff_kh_01', 'prod_ff_kh_009', 'Weekly Membership', 1, 1.99, 'BEST_SELLER', 'Hot Deal 🔥', true),
-  ('pkg_ff_kh_02', 'prod_ff_kh_009', '100 Diamonds + 10 Bonus', 110, 0.99, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_ff_kh_03', 'prod_ff_kh_009', '310 Diamonds + 31 Bonus', 341, 2.99, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_ff_kh_04', 'prod_ff_kh_009', '520 Diamonds + 52 Bonus', 572, 4.90, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_ff_kh_05', 'prod_ff_kh_009', '1060 Diamonds + 106 Bonus', 1166, 9.75, 'NORMAL', 'Bonus 10%', true),
-  ('pkg_ff_kh_06', 'prod_ff_kh_009', '2180 Diamonds + 218 Bonus', 2398, 19.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+-- 8.9 Valorant
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, '475 Valorant Points (VP)', 475, 4.99, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'valorant'
+UNION ALL
+SELECT p.id, '1000 Valorant Points (VP)', 1000, 9.99, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'valorant'
+UNION ALL
+SELECT p.id, '2050 Valorant Points (VP)', 2050, 19.80, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'valorant'
+UNION ALL
+SELECT p.id, '3650 Valorant Points (VP)', 3650, 34.50, 'NORMAL', 'Bonus 10%', true FROM "Product" p WHERE p.slug = 'valorant'
+UNION ALL
+SELECT p.id, '5350 Valorant Points (VP)', 5350, 49.00, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true FROM "Product" p WHERE p.slug = 'valorant';
 
--- 7.10 Blood Strike
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_bs_010', 'Blood Strike', 'blood-strike', '/images/games/bloodstrike.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/bloodstrike.png', "isActive" = true;
+-- 8.10 Blood Strike
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, '100 Gold', 100, 0.99, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'blood-strike'
+UNION ALL
+SELECT p.id, '500 Gold', 500, 4.99, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'blood-strike'
+UNION ALL
+SELECT p.id, '1000 Gold', 1000, 9.99, 'NORMAL', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'blood-strike'
+UNION ALL
+SELECT p.id, '2500 Gold', 2500, 24.99, 'NORMAL', 'Bonus 10%', true FROM "Product" p WHERE p.slug = 'blood-strike'
+UNION ALL
+SELECT p.id, '5000 Gold', 5000, 49.99, 'NORMAL', 'កញ្ចប់ធំ 💎', true FROM "Product" p WHERE p.slug = 'blood-strike';
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_bs_01', 'prod_bs_010', '100 Gold', 100, 0.99, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_bs_02', 'prod_bs_010', '500 Gold', 500, 4.99, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_bs_03', 'prod_bs_010', '1000 Gold', 1000, 9.99, 'NORMAL', 'ពេញនិយម', true),
-  ('pkg_bs_04', 'prod_bs_010', '2500 Gold', 2500, 24.99, 'NORMAL', 'Bonus 10%', true),
-  ('pkg_bs_05', 'prod_bs_010', '5000 Gold', 5000, 49.99, 'NORMAL', 'កញ្ចប់ធំ 💎', true)
-ON CONFLICT ("id") DO NOTHING;
+-- 8.11 Magic Chess: Go Go
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, '50 Diamonds', 50, 0.85, 'BEST_SELLER', 'Hot 🔥', true FROM "Product" p WHERE p.slug = 'magic-chess-gogo'
+UNION ALL
+SELECT p.id, '100 Diamonds', 100, 1.65, 'BEST_SELLER', 'ពេញនិយម', true FROM "Product" p WHERE p.slug = 'magic-chess-gogo'
+UNION ALL
+SELECT p.id, '500 Diamonds', 500, 7.90, 'NORMAL', 'Bonus 10%', true FROM "Product" p WHERE p.slug = 'magic-chess-gogo'
+UNION ALL
+SELECT p.id, '1000 Diamonds', 1000, 15.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true FROM "Product" p WHERE p.slug = 'magic-chess-gogo';
 
--- 7.11 Magic Chess: Go Go
-INSERT INTO "Product" ("id", "name", "slug", "image", "category", "isActive")
-VALUES ('prod_mc_011', 'Magic Chess: Go Go', 'magic-chess-gogo', '/images/games/magicchess.png', 'MOBILE_GAME', true)
-ON CONFLICT ("slug") DO UPDATE SET "image" = '/images/games/magicchess.png', "isActive" = true;
+-- 8.12 Dynamic Default Packages for ALL other remaining games
+INSERT INTO "Package" ("productId", "name", "amount", "price", "category", "badge", "isActive")
+SELECT p.id, 'Starter Tier (Small)', 100, 0.99, 'BEST_SELLER', 'Hot 🔥', true
+FROM "Product" p
+WHERE NOT EXISTS (SELECT 1 FROM "Package" pkg WHERE pkg."productId" = p.id)
+UNION ALL
+SELECT p.id, 'Popular Tier (Medium)', 500, 4.99, 'BEST_SELLER', 'ពេញនិយម', true
+FROM "Product" p
+WHERE NOT EXISTS (SELECT 1 FROM "Package" pkg WHERE pkg."productId" = p.id)
+UNION ALL
+SELECT p.id, 'Mega Tier (Large)', 1200, 9.99, 'NORMAL', 'Bonus 15%', true
+FROM "Product" p
+WHERE NOT EXISTS (SELECT 1 FROM "Package" pkg WHERE pkg."productId" = p.id)
+UNION ALL
+SELECT p.id, 'VIP Exclusive Tier', 3500, 29.99, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true
+FROM "Product" p
+WHERE NOT EXISTS (SELECT 1 FROM "Package" pkg WHERE pkg."productId" = p.id);
 
-INSERT INTO "Package" ("id", "productId", "name", "amount", "price", "category", "badge", "isActive")
-VALUES 
-  ('pkg_mc_01', 'prod_mc_011', '50 Diamonds', 50, 0.85, 'BEST_SELLER', 'Hot 🔥', true),
-  ('pkg_mc_02', 'prod_mc_011', '100 Diamonds', 100, 1.65, 'BEST_SELLER', 'ពេញនិយម', true),
-  ('pkg_mc_03', 'prod_mc_011', '500 Diamonds', 500, 7.90, 'NORMAL', 'Bonus 10%', true),
-  ('pkg_mc_04', 'prod_mc_011', '1000 Diamonds', 1000, 15.50, 'NORMAL', 'កញ្ចប់ពិសេស 💎', true)
-ON CONFLICT ("id") DO NOTHING;
-
+-- ====================================================================
+-- 9. SUPABASE REALTIME CONFIGURATION
+-- ====================================================================
+DO $$
+BEGIN
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE "Order"; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE "Product"; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE "Package"; EXCEPTION WHEN OTHERS THEN NULL; END;
+  BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE "SystemSetting"; EXCEPTION WHEN OTHERS THEN NULL; END;
+END $$;

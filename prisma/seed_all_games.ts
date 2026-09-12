@@ -398,7 +398,6 @@ const ALL_GAMES: GameDef[] = [
   { name: 'Subway Surfers', slug: 'subway-surfers', category: 'MOBILE_GAME', currency: 'Keys & Coins' },
   { name: 'Temple Run 2', slug: 'temple-run-2', category: 'MOBILE_GAME', currency: 'Gems' },
   { name: 'Angry Birds 2', slug: 'angry-birds-2', category: 'MOBILE_GAME', currency: 'Gems' },
-  { name: '2048', slug: '2048-game', category: 'MOBILE_GAME', currency: 'Ad-Free Pass' },
   { name: 'Fruit Ninja', slug: 'fruit-ninja', category: 'MOBILE_GAME', currency: 'Starfruit' },
   { name: 'Jetpack Joyride', slug: 'jetpack-joyride', category: 'MOBILE_GAME', currency: 'Coins' },
   { name: 'Hill Climb Racing', slug: 'hill-climb-racing', category: 'MOBILE_GAME', currency: 'Gems' },

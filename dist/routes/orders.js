@@ -29,12 +29,17 @@ router.post('/', async (req, res) => {
         if (!pkg) {
             return res.status(404).json({ error: 'Package not found' });
         }
-        // Validate Player ID and retrieve nickname
-        const lookup = await (0, gameProviderMock_1.lookupPlayerNickname)(pkg.product.slug, playerId, playerZoneId);
-        if (!lookup.success) {
-            return res.status(400).json({ error: `Player ID validation failed: ${lookup.error}` });
+        // Validate Player ID and retrieve nickname (non-blocking)
+        let nickname = 'Player';
+        try {
+            const lookup = await (0, gameProviderMock_1.lookupPlayerNickname)(pkg.product.slug, playerId, playerZoneId);
+            if (lookup && lookup.nickname) {
+                nickname = lookup.nickname;
+            }
         }
-        const nickname = lookup.nickname || 'Unknown Player';
+        catch {
+            nickname = 'Player';
+        }
         // Generate unique payment transaction ID
         const timeCode = Date.now().toString().slice(-6);
         const randCode = Math.floor(1000 + Math.random() * 9000);
@@ -50,10 +55,23 @@ router.post('/', async (req, res) => {
             try {
                 const decoded = require('jsonwebtoken').verify(token, JWT_SECRET);
                 userId = decoded.id;
-                contactEmail = decoded.email;
+                contactEmail = decoded.email || contactEmail;
             }
             catch (err) {
-                // Ignore invalid token and create as guest
+                // Fallback: Check if token is a Supabase Auth or Google JWT token
+                try {
+                    const parts = token.split('.');
+                    if (parts.length === 3) {
+                        const decoded = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+                        if (decoded) {
+                            userId = decoded.sub || decoded.id || null;
+                            contactEmail = decoded.email || contactEmail;
+                        }
+                    }
+                }
+                catch {
+                    // Ignore invalid token and create as guest
+                }
             }
         }
         // Generate payment details depending on gateway choice
@@ -199,6 +217,9 @@ router.get('/status/:txnId', async (req, res) => {
             abaPayload = paymentDetails.payload;
             abaApiUrl = process.env.ABA_PAYWAY_API_URL || 'https://checkout-sandbox.ababank.com/api/payment-gateway/v1/payments/purchase';
         }
+        const deepLink = order.paymentQrCode ? `abamobilebank://ababank.com?type=payway&qrcode=${encodeURIComponent(order.paymentQrCode)}` : null;
+        const payUrl = order.gatewayRef && order.gatewayRef.startsWith('TXN-') ? `https://www.vngzz2game.site/pay/${order.gatewayRef}` : null;
+        const qrImageUrl = order.paymentQrCode ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=4&data=${encodeURIComponent(order.paymentQrCode)}` : null;
         return res.status(200).json({
             id: order.id,
             paymentTxnId: order.paymentTxnId,
@@ -214,8 +235,11 @@ router.get('/status/:txnId', async (req, res) => {
             stockDeliveredCode: order.stockDeliveredCode,
             paymentQrCode: order.paymentQrCode,
             paymentMd5: order.paymentMd5,
+            deepLink,
+            payUrl,
+            qrImageUrl,
             createdAt: order.createdAt,
-            merchantName: process.env.BAKONG_MERCHANT_NAME || 'Daratopup',
+            merchantName: process.env.BAKONG_MERCHANT_NAME || 'NA-DY TOPUP',
             abaPayload,
             abaApiUrl,
         });

@@ -7,7 +7,6 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const helmet_1 = __importDefault(require("helmet"));
-const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const path_1 = __importDefault(require("path"));
 const multer_1 = __importDefault(require("multer"));
 const prisma_1 = __importDefault(require("./prisma"));
@@ -24,6 +23,8 @@ const orders_1 = __importDefault(require("./routes/orders"));
 const admin_1 = __importDefault(require("./routes/admin"));
 const payments_1 = __importDefault(require("./routes/payments"));
 const webhook_1 = __importDefault(require("./routes/webhook"));
+const security_1 = __importDefault(require("./routes/security"));
+const securityMiddleware_1 = __importDefault(require("./middleware/securityMiddleware"));
 const paymentVerification_1 = require("./utils/paymentVerification");
 const startup_1 = require("./utils/startup");
 const app = (0, express_1.default)();
@@ -49,16 +50,8 @@ app.options('*', (0, cors_1.default)());
 // ─── Body Parsing ─────────────────────────────────────────────────────────────
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
-// ─── Rate Limiting ────────────────────────────────────────────────────────────
-const limiter = (0, express_rate_limit_1.default)({
-    windowMs: 15 * 60 * 1000,
-    max: 300,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many requests, please try again later.' },
-    skip: (req) => req.path === '/api/health' || req.path === '/',
-});
-app.use('/api/', limiter);
+// ─── Professional Anti-DDoS & WAF Protection System ───────────────────────────
+app.use(securityMiddleware_1.default);
 // ─── Static Files ─────────────────────────────────────────────────────────────
 app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '..', 'public', 'uploads')));
 // ─── Health & Root Routes ─────────────────────────────────────────────────────
@@ -120,6 +113,7 @@ app.use('/api/auth', auth_1.default);
 app.use('/api/products', products_1.default);
 app.use('/api/orders', orders_1.default);
 app.use('/api/admin', admin_1.default);
+app.use('/api/security', security_1.default);
 app.use('/api/payments', payments_1.default);
 app.use('/api/payment', payments_1.default);
 app.use('/api/webhook', webhook_1.default);

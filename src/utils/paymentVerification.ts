@@ -1,5 +1,6 @@
 import prisma from '../prisma';
 import { checkBakongPaymentStatus, PaymentVerificationContext } from './paymentMock';
+import { deliverTopup } from './gameProviderMock';
 import { sendTelegramNotification } from './telegram';
 
 const SANDBOX_MODE = process.env.SANDBOX_MODE === 'true';
@@ -38,6 +39,32 @@ export async function verifyAbaKhqrPayment(order: any): Promise<boolean> {
     logErr('Verification', txnId,
       `REPLAY ATTACK: MD5 "${md5}" already used by paid order "${replayOrder.paymentTxnId}". Rejecting.`);
     return false;
+  }
+
+  // -- 1.4. Direct VNGZZ2GAME payment check --------------------------------
+  const vngzzApiKey = process.env.VNGZZ2GAME_API_KEY || process.env.AUTO_TOPUP_API_KEY || 'pwArFcCneE0vcBDIGu6ZeIKHUZ3HxeQZ';
+  const targetTxn = order.gatewayRef || order.paymentTxnId;
+  if (vngzzApiKey && targetTxn && (targetTxn.startsWith('TXN-') || targetTxn.startsWith('TOPUP-'))) {
+    try {
+      const vngzzRes = await fetch('https://www.vngzz2game.site/api/v1/check_transaction', {
+        method: 'POST',
+        headers: {
+          'X-API-Key': vngzzApiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ transaction_id: targetTxn }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (vngzzRes.ok) {
+        const vngzzData = await vngzzRes.json() as any;
+        if (vngzzData.data?.is_paid === true || vngzzData.data?.state === 'PAID' || vngzzData.data?.state === 'APPROVED' || vngzzData.data?.state === 'SUCCESS') {
+          log('Verification', txnId, `✅ VNGZZ2GAME confirmed payment PAID for ref: ${targetTxn}`);
+          return true;
+        }
+      }
+    } catch (vngzzErr: any) {
+      logErr('Verification', txnId, `VNGZZ2GAME check error: ${vngzzErr.message || vngzzErr}`);
+    }
   }
 
   // -- 1.5. Direct CutLuy status check --------------------------------------
@@ -99,7 +126,7 @@ export async function verifyAbaKhqrPayment(order: any): Promise<boolean> {
  *
  * Runs inside an atomic transaction block. Marks the payment as PAID and
  * allocates stock vouchers if the product is a code voucher category, else
- * delivers immediately. Sends Telegram alert notifications.
+ * auto-fulfills direct top-ups via VNGZZ2GAME API. Sends Telegram alert notifications.
  */
 export async function processVerifiedPayment(order: any, gatewayRef: string) {
   const txnId = order.paymentTxnId;
@@ -117,10 +144,32 @@ export async function processVerifiedPayment(order: any, gatewayRef: string) {
     };
   }
 
+  // If direct top-up, trigger auto provider delivery to VNGZZ2GAME
+  let providerRef = gatewayRef;
+  const isVoucher = order.package?.category === 'CODE_VOUCHER';
+  if (!isVoucher) {
+    try {
+      const gameSlug = order.package?.product?.slug || '';
+      const deliveryRes = await deliverTopup(
+        gameSlug,
+        order.playerId,
+        order.playerZoneId || null,
+        order.package?.name || '',
+        order.price,
+        txnId,
+        (order.package as any)?.productCode
+      );
+      if (deliveryRes.referenceId) {
+        providerRef = deliveryRes.referenceId;
+      }
+    } catch (deliveryErr: any) {
+      logErr('Delivery', txnId, `Provider delivery error: ${deliveryErr.message || deliveryErr}`);
+    }
+  }
+
   // Execute database updates and stock claiming atomically
   const result = await prisma.$transaction(async (tx) => {
     let stockCode: string | null = null;
-    let isVoucher = order.package?.category === 'CODE_VOUCHER';
 
     if (isVoucher) {
       // Find an unused stock item for this package
@@ -144,7 +193,7 @@ export async function processVerifiedPayment(order: any, gatewayRef: string) {
 
     const deliveryStatus = isVoucher
       ? (stockCode ? 'DELIVERED' : 'FAILED')
-      : 'DELIVERED'; // Direct top-ups are immediately delivered on payment
+      : 'DELIVERED'; // Direct top-ups are fulfilled via provider
 
     const finalStatus = deliveryStatus === 'DELIVERED' ? 'PAID' : 'FAILED';
 
@@ -155,7 +204,7 @@ export async function processVerifiedPayment(order: any, gatewayRef: string) {
         status: finalStatus,
         deliveryStatus: deliveryStatus,
         paidAt: new Date(),
-        gatewayRef: gatewayRef,
+        gatewayRef: providerRef,
         stockDeliveredCode: stockCode,
       },
       include: { package: { include: { product: true } } },

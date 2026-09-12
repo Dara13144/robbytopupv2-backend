@@ -7,14 +7,22 @@ import { authenticateJWT, AuthenticatedRequest } from '../middleware/auth';
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-change-in-production-12345';
 
+const ADMIN_EMAILS = [
+  'mdara9695@gmail.com',
+  'admin@nadytopup.com',
+  'admin@topup.com'
+];
+
 // Register Route
 router.post('/register', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email: rawEmail, password } = req.body;
 
-    if (!email || !password) {
+    if (!rawEmail || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
+
+    const email = rawEmail.trim().toLowerCase();
 
     // Check if email already exists
     const existingUser = await prisma.user.findUnique({
@@ -28,9 +36,10 @@ router.post('/register', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // If first user, make ADMIN, else USER
+    // If matches admin list or is first user, make ADMIN
     const userCount = await prisma.user.count();
-    const role = userCount === 0 ? 'ADMIN' : 'USER';
+    const isAdminEmail = ADMIN_EMAILS.includes(email);
+    const role = (isAdminEmail || userCount === 0) ? 'ADMIN' : 'USER';
 
     const user = await prisma.user.create({
       data: {
@@ -65,11 +74,13 @@ router.post('/register', async (req, res) => {
 // Login Route
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email: rawEmail, password } = req.body;
 
-    if (!email || !password) {
+    if (!rawEmail || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
+
+    const email = rawEmail.trim().toLowerCase();
 
     let user = await prisma.user.findUnique({
       where: { email },
@@ -84,8 +95,9 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Ensure mdara9695@gmail.com is always ADMIN
-    if (user.email.toLowerCase() === 'mdara9695@gmail.com' && user.role !== 'ADMIN') {
+    // Ensure designated admin emails are always elevated to ADMIN
+    const isAdminEmail = ADMIN_EMAILS.includes(email);
+    if (isAdminEmail && user.role !== 'ADMIN') {
       user = await prisma.user.update({
         where: { id: user.id },
         data: { role: 'ADMIN' },
@@ -121,7 +133,7 @@ router.get('/me', authenticateJWT, async (req: AuthenticatedRequest, res: Respon
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
         id: true,
@@ -133,6 +145,20 @@ router.get('/me', authenticateJWT, async (req: AuthenticatedRequest, res: Respon
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Elevate admin if matches email
+    if (ADMIN_EMAILS.includes(user.email.toLowerCase()) && user.role !== 'ADMIN') {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'ADMIN' },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          createdAt: true,
+        },
+      });
     }
 
     return res.status(200).json({ user });
@@ -159,11 +185,9 @@ router.post('/google', async (req, res) => {
       try {
         let googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
         if (!googleRes.ok) {
-          // Check if credential is an access token
           googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${credential}`);
         }
         if (!googleRes.ok) {
-          // Check Google userinfo endpoint with Bearer authorization
           googleRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
             headers: { Authorization: `Bearer ${credential}` },
           });
@@ -203,8 +227,7 @@ router.post('/google', async (req, res) => {
       return res.status(400).json({ error: 'Failed to retrieve email from Google credential' });
     }
 
-    // Determine admin role: mdara9695@gmail.com is ALWAYS ADMIN
-    const isAdmin = email === 'mdara9695@gmail.com';
+    const isAdminEmail = ADMIN_EMAILS.includes(email);
 
     let user = await prisma.user.findUnique({ where: { email } });
 
@@ -214,11 +237,11 @@ router.post('/google', async (req, res) => {
         data: {
           email,
           password: generatedPass,
-          role: isAdmin ? 'ADMIN' : 'USER',
+          role: isAdminEmail ? 'ADMIN' : 'USER',
         },
       });
       console.log(`[Auth] Registered new Google user: ${email} (${user.role})`);
-    } else if (isAdmin && user.role !== 'ADMIN') {
+    } else if (isAdminEmail && user.role !== 'ADMIN') {
       user = await prisma.user.update({
         where: { email },
         data: { role: 'ADMIN' },

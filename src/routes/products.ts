@@ -38,19 +38,22 @@ router.get('/lookup/:gameSlug', async (req: Request, res: Response) => {
     const playerZoneId = (req.query.playerZoneId as string) || '';
 
     if (!playerId.trim()) {
-      return res.status(400).json({ error: 'Player ID is required' });
+      return res.status(400).json({ success: false, error: 'Player ID is required' });
     }
 
     const result = await lookupPlayerNickname(gameSlug, playerId, playerZoneId);
-    if (!result.success) {
-      return res.status(200).json({ nickname: `បានផ្ទៀងផ្ទាត់ (${playerId.trim()})` });
+    if (result && result.success && result.nickname) {
+      return res.status(200).json({ success: true, nickname: result.nickname });
     }
 
-    return res.status(200).json({ nickname: result.nickname || `បានផ្ទៀងផ្ទាត់ (${playerId.trim()})` });
-  } catch (error) {
+    return res.status(200).json({
+      success: false,
+      nickname: null,
+      error: result?.error || 'Player not found'
+    });
+  } catch (error: any) {
     console.error('Nickname lookup error:', error);
-    const fallbackId = (req.query.playerId as string) || 'Player';
-    return res.status(200).json({ nickname: `បានផ្ទៀងផ្ទាត់ (${fallbackId.trim()})` });
+    return res.status(500).json({ success: false, error: 'Internal lookup error' });
   }
 });
 
@@ -144,7 +147,7 @@ router.delete('/:id', authenticateJWT, requireAdmin, async (req: AuthenticatedRe
 router.post('/:productId/packages', authenticateJWT, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { productId } = req.params;
-    const { name, amount, price, isActive } = req.body;
+    const { name, amount, price, isActive, category, badge } = req.body;
 
     if (!name || amount === undefined || price === undefined) {
       return res.status(400).json({ error: 'Required fields missing' });
@@ -156,6 +159,8 @@ router.post('/:productId/packages', authenticateJWT, requireAdmin, async (req: A
         name,
         amount: parseInt(amount),
         price: parseFloat(price),
+        category: category || 'NORMAL',
+        badge: badge || null,
         isActive: isActive !== undefined ? isActive : true,
       },
     });
@@ -171,7 +176,7 @@ router.post('/:productId/packages', authenticateJWT, requireAdmin, async (req: A
 router.put('/packages/:packageId', authenticateJWT, requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { packageId } = req.params;
-    const { name, amount, price, isActive } = req.body;
+    const { name, amount, price, isActive, category, badge } = req.body;
 
     const updatedPackage = await prisma.package.update({
       where: { id: packageId },
@@ -179,6 +184,8 @@ router.put('/packages/:packageId', authenticateJWT, requireAdmin, async (req: Au
         name,
         amount: amount !== undefined ? parseInt(amount) : undefined,
         price: price !== undefined ? parseFloat(price) : undefined,
+        category: category !== undefined ? category : undefined,
+        badge: badge !== undefined ? badge : undefined,
         isActive,
       },
     });

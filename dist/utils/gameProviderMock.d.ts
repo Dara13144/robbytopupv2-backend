@@ -9,4 +9,4 @@ export interface DeliveryResult {
     error?: string;
 }
 export declare function lookupPlayerNickname(gameSlug: string, playerId: string, playerZoneId?: string): Promise<LookupResult>;
-export declare function deliverTopup(gameSlug: string, playerId: string, playerZoneId: string | null, packageName: string, amount: number): Promise<DeliveryResult>;
+export declare function deliverTopup(gameSlug: string, playerId: string, playerZoneId: string | null, packageName: string, amount: number, orderTxnId?: string, productCode?: string): Promise<DeliveryResult>;
